@@ -1,6 +1,6 @@
 # Douban Data Backup (豆瓣数据备份工具)
 
-[![v1.0](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/your-repo/douban-backup)
+[![v1.0](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/zx2592/douban_backup)
 
 一个强大的豆瓣个人数据备份工具，支持导出 **电影、书籍、音乐、游戏** 的完整记录，包括用户评分、观看时间、标签以及 **个人评语**。
 
