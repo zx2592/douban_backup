@@ -1,10 +1,12 @@
 # Douban Backup
 
-[![v1.5](https://img.shields.io/badge/version-1.5-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.51](https://img.shields.io/badge/version-1.51-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
+
+> v1.51 fixes the issue where book, music, and game short reviews could not be exported when crawling public data.
 
 ---
 
@@ -136,6 +138,10 @@ python crawl_public.py
 ---
 
 ## Changelog
+
+### v1.51 — Public Data Short Review Fix
+
+- **Fixed book, music, and game short review export** — `crawl_public.py` now uniformly reads the short review elements from the page, avoiding music short reviews being ignored when sharing an item with the date, and no longer mistaking game descriptions for short reviews.
 
 ### v1.5 — Security Hardening
 
