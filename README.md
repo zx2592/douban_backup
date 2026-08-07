@@ -1,10 +1,12 @@
 # Douban Backup
 
-[![v1.5](https://img.shields.io/badge/version-1.5-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.51](https://img.shields.io/badge/version-1.51-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
+
+> v1.51 已修复公开数据抓取时书籍、音乐和游戏短评无法导出的问题。
 
 ---
 
@@ -136,6 +138,10 @@ python crawl_public.py
 ---
 
 ## 更新日志
+
+### v1.51 — 公开数据短评修复
+
+- **修复书籍、音乐、游戏短评导出** — `crawl_public.py` 现在统一读取页面中的短评元素，避免音乐短评与日期同项时被忽略，也不再将游戏简介误作短评。
 
 ### v1.5 — 安全性加固
 

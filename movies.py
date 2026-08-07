@@ -3,8 +3,6 @@
 """
 import re
 from base import BaseCrawler
-from base import BaseCrawler
-# from config import DOUBAN_BASE_URL # Don't use generic base for movies
 
 
 class MovieCrawler(BaseCrawler):
@@ -14,8 +12,8 @@ class MovieCrawler(BaseCrawler):
         'do': '在看'
     }
 
-    def __init__(self, session):
-        super().__init__(session)
+    def __init__(self, session, state_store=None):
+        super().__init__(session, category_key='movies', state_store=state_store)
         self.user_id = None
 
     def set_user_id(self, user_id):
@@ -24,17 +22,17 @@ class MovieCrawler(BaseCrawler):
     def crawl_wish_movies(self):
         """爬取想看的电影"""
         url = f"https://movie.douban.com/people/{self.user_id}/wish"
-        return self.crawl(url, 'wish')
+        return self.crawl_collection(url, 'wish')
 
     def crawl_collect_movies(self):
         """爬取已看的电影"""
         url = f"https://movie.douban.com/people/{self.user_id}/collect"
-        return self.crawl(url, 'collect')
+        return self.crawl_collection(url, 'collect')
 
     def crawl_do_movies(self):
         """爬取在看的电影"""
         url = f"https://movie.douban.com/people/{self.user_id}/do"
-        return self.crawl(url, 'do')
+        return self.crawl_collection(url, 'do')
 
     def _parse_items(self, response, collection_type=None):
         """解析电影条目"""

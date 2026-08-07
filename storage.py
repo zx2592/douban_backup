@@ -8,7 +8,9 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from backup_metadata import merge_metadata, metadata_rows
 from config import DATA_DIR
+from excel_safety import sanitize_excel_value
 
 
 # 星级显示
@@ -125,16 +127,27 @@ _STAR_FONT = Font(name='Microsoft YaHei', size=10, color='FF8F00')
 
 
 class DataStorage:
-    def __init__(self):
-        self.backup_dir = os.path.join(DATA_DIR, 'backup')
+    def __init__(self, backup_dir=None, metadata=None):
+        self.backup_dir = backup_dir or os.path.join(DATA_DIR, 'backup')
+        self.metadata = metadata or {}
         os.makedirs(self.backup_dir, exist_ok=True)
+
+    def set_metadata(self, metadata):
+        self.metadata = metadata or {}
+
+    def _build_payload(self, data, metadata=None):
+        return {
+            "metadata": merge_metadata(self.metadata, metadata),
+            "data": data,
+        }
 
     # ───────── JSON ─────────
 
-    def save_json(self, data, filename):
+    def save_json(self, data, filename, metadata=None):
         filepath = os.path.join(self.backup_dir, f"{filename}.json")
+        payload = self._build_payload(data, metadata)
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
         print(f"  已保存: {filepath}")
         return filepath
 
@@ -153,8 +166,9 @@ class DataStorage:
     def save_excel(self, data, filename):
         filepath = os.path.join(self.backup_dir, f"{filename}.xlsx")
         wb = Workbook()
-        # 删除默认 sheet
         wb.remove(wb.active)
+
+        self._write_metadata_sheet(wb, merge_metadata(self.metadata))
 
         # 1) 总览 sheet
         self._write_overview_sheet(wb, data)
@@ -179,8 +193,29 @@ class DataStorage:
 
     # ───────── 总览 Sheet ─────────
 
+    def _write_metadata_sheet(self, wb, metadata):
+        ws = wb.create_sheet('元数据', 0)
+        ws.column_dimensions['A'].width = 24
+        ws.column_dimensions['B'].width = 48
+
+        for row_index, (key, value) in enumerate(metadata_rows(metadata), 1):
+            key_cell = ws.cell(row=row_index, column=1, value=key)
+            key_cell.font = _HEADER_FONT
+            key_cell.fill = _HEADER_FILL
+            key_cell.alignment = _HEADER_ALIGN
+            key_cell.border = _THIN_BORDER
+
+            value_cell = ws.cell(
+                row=row_index,
+                column=2,
+                value=sanitize_excel_value(value),
+            )
+            value_cell.font = _CELL_FONT
+            value_cell.alignment = Alignment(vertical='center', wrap_text=True)
+            value_cell.border = _THIN_BORDER
+
     def _write_overview_sheet(self, wb, data):
-        ws = wb.create_sheet('总览', 0)
+        ws = wb.create_sheet('总览', 1)
 
         # 标题
         ws.merge_cells('A1:F1')
@@ -353,10 +388,18 @@ class DataStorage:
                         cell.font = _STAR_FONT
                         cell.alignment = Alignment(horizontal='center')
                     elif key == 'title':
-                        cell = ws.cell(row=current_row, column=ci, value=item.get(key, ''))
+                        cell = ws.cell(
+                            row=current_row,
+                            column=ci,
+                            value=sanitize_excel_value(item.get(key, ''))
+                        )
                         cell.font = _TITLE_FONT
                     else:
-                        cell = ws.cell(row=current_row, column=ci, value=item.get(key, ''))
+                        cell = ws.cell(
+                            row=current_row,
+                            column=ci,
+                            value=sanitize_excel_value(item.get(key, ''))
+                        )
                         cell.font = _CELL_FONT
 
                     cell.fill = fill

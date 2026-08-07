@@ -13,8 +13,8 @@ class GameCrawler(BaseCrawler):
         'do': '在玩'
     }
 
-    def __init__(self, session):
-        super().__init__(session)
+    def __init__(self, session, state_store=None):
+        super().__init__(session, category_key='games', state_store=state_store)
         self.user_id = None
 
     def set_user_id(self, user_id):
@@ -24,9 +24,9 @@ class GameCrawler(BaseCrawler):
         # Games use ?action=...
         base = f"https://www.douban.com/people/{self.user_id}/games"
         return {
-            'wish': self.crawl(f"{base}?action=wish", 'wish'),
-            'collect': self.crawl(f"{base}?action=collect", 'collect'),
-            'do': self.crawl(f"{base}?action=do", 'do')
+            'wish': self.crawl_collection(f"{base}?action=wish", 'wish'),
+            'collect': self.crawl_collection(f"{base}?action=collect", 'collect'),
+            'do': self.crawl_collection(f"{base}?action=do", 'do')
         }
 
     def _parse_items(self, response, collection_type=None):

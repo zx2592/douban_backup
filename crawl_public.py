@@ -11,6 +11,9 @@ import requests
 from bs4 import BeautifulSoup
 from openpyxl import Workbook
 from datetime import datetime
+from backup_metadata import build_metadata, merge_metadata, metadata_rows
+from diagnostics import classify_response
+from excel_safety import sanitize_excel_value
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,8 +28,16 @@ USER_ID = None  # 由命令行参数或交互输入设置
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'backup')
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'backup')
+OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+DEFAULT_CATEGORIES = ['movies', 'books', 'music', 'games']
+
+
+def get_comment(item):
+    """Return the user comment from a collection item, when present."""
+    comment_tag = item.select_one('.comment')
+    return comment_tag.get_text(' ', strip=True) if comment_tag else ''
 
 
 def crawl_movies():
@@ -50,7 +61,9 @@ def crawl_movies():
             page_url = f"{url}?start={page * 15}&sort=time"
             try:
                 response = SESSION.get(page_url, timeout=30)
-                if response.status_code != 200:
+                status, _, message = classify_response(response)
+                if status != 'ok':
+                    print(f"    [WARN] {message}")
                     break
 
                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -126,8 +139,7 @@ def parse_movie_item(item):
         date_tag = item.find('span', class_='date')
         date = date_tag.get_text(strip=True) if date_tag else ''
 
-        comment_tag = item.find('span', class_='comment')
-        comment = comment_tag.get_text(strip=True) if comment_tag else ''
+        comment = get_comment(item)
 
         return {
             'douban_id': subject_id,
@@ -159,10 +171,12 @@ def crawl_books():
         total = 0
 
         while True:
-            page_url = f"{url}&start={page * 15}"
+            page_url = f"{url}?start={page * 15}"
             try:
                 response = SESSION.get(page_url, timeout=30)
-                if response.status_code != 200:
+                status, _, message = classify_response(response)
+                if status != 'ok':
+                    print(f"    [WARN] {message}")
                     break
 
                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -258,11 +272,7 @@ def parse_book_item(item):
                         rating = match.group(1)
                     break
         
-        # Comment
-        comment = ''
-        comment_tag = item.find('p', class_='comment')
-        if comment_tag:
-            comment = comment_tag.get_text(strip=True)
+        comment = get_comment(item)
 
         return {
             'douban_id': subject_id,
@@ -297,7 +307,9 @@ def crawl_music():
             page_url = f"{url}?start={page * 15}&sort=time"
             try:
                 response = SESSION.get(page_url, timeout=30)
-                if response.status_code != 200:
+                status, _, message = classify_response(response)
+                if status != 'ok':
+                    print(f"    [WARN] {message}")
                     break
 
                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -368,19 +380,7 @@ def parse_music_item(item):
         intro = intro_tag.get_text(strip=True) if intro_tag else ''
         artist = intro.split('/')[0].strip() if intro else ''
 
-        # Parsing comment logic for Music: often mixed in li
-        comment = ''
-        # Try finding a list item that is NOT intro, NOT title, NOT rating
-        # For music, often the last li if it doesn't have class.
-        lis = info.find_all('li')
-        if lis:
-            last_li = lis[-1]
-            if not last_li.get('class'):
-                 text = last_li.get_text(strip=True)
-                 # Check if it looks like a date/rating line (starts with date usually)
-                 # Date format: YYYY-MM-DD
-                 if not re.match(r'\d{4}-\d{2}-\d{2}', text):
-                     comment = text
+        comment = get_comment(item)
 
         return {
             'douban_id': subject_id,
@@ -416,7 +416,9 @@ def crawl_games():
             page_url = f"{url}?action={coll_type}&start={page * 15}"
             try:
                 response = SESSION.get(page_url, timeout=30)
-                if response.status_code != 200:
+                status, _, message = classify_response(response)
+                if status != 'ok':
+                    print(f"    [WARN] {message}")
                     break
 
                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -490,19 +492,7 @@ def parse_game_item(item):
              if parts:
                  date = parts[0].strip()
 
-        # Comment for Games: text in .info div
-        comment = ''
-        try:
-             # This is tricky as structure varies. Attempt provided strategy.
-             info_div = item.select_one('.info')
-             if info_div:
-                 # Get text that is NOT inside desc or title
-                 cloned_info = BeautifulSoup(str(info_div), 'html.parser')
-                 for tag in cloned_info.select('.title, .desc, .rating-info'):
-                     tag.decompose()
-                 comment = cloned_info.get_text(strip=True)
-        except Exception:
-            pass
+        comment = get_comment(item)
 
         return {
             'douban_id': subject_id,
@@ -517,20 +507,37 @@ def parse_game_item(item):
         return None
 
 
-def save_json(data, filename):
+def save_json(data, filename, metadata=None):
     """保存JSON文件"""
     filepath = os.path.join(OUTPUT_DIR, f"{filename}.json")
+    payload = {
+        'metadata': merge_metadata(metadata),
+        'data': data,
+    }
     with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"\n✓ 已保存: {filepath}")
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"\n[OK] 已保存: {filepath}")
     return filepath
 
 
-def save_excel(data, filename):
+def save_excel(data, filename, metadata=None):
     """保存Excel文件"""
     filepath = os.path.join(OUTPUT_DIR, f"{filename}.xlsx")
     wb = Workbook()
     ws = wb.active
+    ws.title = '数据'
+
+    metadata_sheet = wb.create_sheet('元数据', 0)
+    metadata_sheet.column_dimensions['A'].width = 24
+    metadata_sheet.column_dimensions['B'].width = 48
+    for row_index, (key, value) in enumerate(metadata_rows(metadata), 1):
+        metadata_sheet.cell(row=row_index, column=1, value=key)
+        metadata_sheet.cell(
+            row=row_index,
+            column=2,
+            value=sanitize_excel_value(value),
+        )
+    wb.active = 1
 
     ws.append(['类型', '收藏状态', '标题', '豆瓣ID', '评分', '评语', '作者/音乐人/日期', '日期/封面/详情'])
 
@@ -542,20 +549,97 @@ def save_excel(data, filename):
                 field2 = item.get('date') or item.get('cover') or item.get('info') or ''
                 
                 row = [
-                    category,
-                    coll,
-                    item.get('title', ''),
-                    item.get('douban_id', ''),
-                    item.get('rating', ''),
-                    item.get('comment', ''),
-                    field1,
-                    field2
+                    sanitize_excel_value(category),
+                    sanitize_excel_value(coll),
+                    sanitize_excel_value(item.get('title', '')),
+                    sanitize_excel_value(item.get('douban_id', '')),
+                    sanitize_excel_value(item.get('rating', '')),
+                    sanitize_excel_value(item.get('comment', '')),
+                    sanitize_excel_value(field1),
+                    sanitize_excel_value(field2)
                 ]
                 ws.append(row)
 
     wb.save(filepath)
-    print(f"✓ 已保存: {filepath}")
+    print(f"[OK] 已保存: {filepath}")
     return filepath
+
+
+def run_public_backup(user_id, categories=None, output_dir=None):
+    global USER_ID, OUTPUT_DIR
+
+    USER_ID = user_id
+    OUTPUT_DIR = output_dir or DEFAULT_OUTPUT_DIR
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    categories = list(categories or DEFAULT_CATEGORIES)
+    metadata = build_metadata(
+        backup_mode='public',
+        selected_categories=categories,
+        user_id=user_id,
+        output_dir=OUTPUT_DIR,
+    )
+
+    print("=" * 50)
+    print("[豆瓣数据备份工具 - 公开数据]")
+    print("=" * 50)
+    print(f"\n用户: {USER_ID}")
+    print(f"时间: {metadata['generated_at']}")
+
+    timestamp = datetime.now().astimezone().strftime('%Y%m%d_%H%M%S')
+    all_data = {}
+
+    crawlers = {
+        'movies': crawl_movies,
+        'books': crawl_books,
+        'music': crawl_music,
+        'games': crawl_games,
+    }
+
+    try:
+        for category in categories:
+            category_data = crawlers[category]()
+            all_data[category] = category_data
+            save_json(
+                category_data,
+                f"{category}_{timestamp}",
+                metadata=build_metadata(
+                    backup_mode='public',
+                    selected_categories=[category],
+                    user_id=user_id,
+                    output_dir=OUTPUT_DIR,
+                ),
+            )
+
+        save_json(all_data, f"douban_backup_{timestamp}", metadata=metadata)
+        save_excel(all_data, f"douban_backup_{timestamp}", metadata=metadata)
+
+        print("\n" + "=" * 50)
+        print("[备份统计]")
+        print("=" * 50)
+        for category in categories:
+            total = sum(len(v) for v in all_data.get(category, {}).values())
+            label = {
+                'movies': '电影',
+                'books': '书籍',
+                'music': '音乐',
+                'games': '游戏',
+            }[category]
+            unit = {
+                'movies': '部',
+                'books': '本',
+                'music': '张',
+                'games': '个',
+            }[category]
+            print(f"  {label}: {total} {unit}")
+        print(f"\n文件保存在: {OUTPUT_DIR}")
+        return all_data
+    except KeyboardInterrupt:
+        print("\n\n用户中断，保存已获取的数据...")
+        if all_data:
+            save_json(all_data, f"douban_backup_interrupted_{timestamp}", metadata=metadata)
+            save_excel(all_data, f"douban_backup_interrupted_{timestamp}", metadata=metadata)
+        return all_data
 
 
 def main():
@@ -573,46 +657,7 @@ def main():
     print("=" * 50)
     print("[豆瓣数据备份工具]")
     print("=" * 50)
-    print(f"\n用户: {USER_ID}")
-    print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    all_data = {}
-
-    try:
-        all_data['movies'] = crawl_movies()
-        save_json(all_data['movies'], f"movies_{timestamp}")
-
-        all_data['books'] = crawl_books()
-        save_json(all_data['books'], f"books_{timestamp}")
-
-        all_data['music'] = crawl_music()
-        save_json(all_data['music'], f"music_{timestamp}")
-
-        all_data['games'] = crawl_games()
-        save_json(all_data['games'], f"games_{timestamp}")
-
-        save_json(all_data, f"douban_backup_{timestamp}")
-        save_excel(all_data, f"douban_backup_{timestamp}")
-
-        print("\n" + "=" * 50)
-        print("[备份统计]")
-        print("=" * 50)
-        movies_total = sum(len(v) for v in all_data['movies'].values())
-        books_total = sum(len(v) for v in all_data['books'].values())
-        music_total = sum(len(v) for v in all_data.get('music', {}).values())
-        games_total = sum(len(v) for v in all_data.get('games', {}).values())
-        print(f"  电影: {movies_total} 部")
-        print(f"  书籍: {books_total} 本")
-        print(f"  音乐: {music_total} 张")
-        print(f"  游戏: {games_total} 个")
-        print(f"\n文件保存在: {OUTPUT_DIR}")
-
-    except KeyboardInterrupt:
-        print("\n\n用户中断，保存已获取的数据...")
-        if all_data:
-            save_json(all_data, f"douban_backup_interrupted_{timestamp}")
-            save_excel(all_data, f"douban_backup_interrupted_{timestamp}")
+    run_public_backup(USER_ID)
 
 
 if __name__ == '__main__':

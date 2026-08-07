@@ -8,6 +8,7 @@ import os
 import time
 import requests
 from config import DOUBAN_BASE_URL, HEADERS, DATA_DIR
+from file_security import restrict_file_permissions
 
 
 class DoubanAuth:
@@ -25,7 +26,7 @@ class DoubanAuth:
             self.session.cookies.update(cookies)
 
             if self._verify_login():
-                print("✓ 使用保存的cookies登录成功")
+                print("[OK] 使用保存的 cookies 登录成功")
                 self._save_user_info()
                 return True
 
@@ -69,7 +70,7 @@ class DoubanAuth:
         print(f"登录响应URL: {response.url}")
 
         if response.url == 'https://www.douban.com/' or 'douban.com/people' in response.url:
-            print("✓ 登录成功")
+            print("[OK] 登录成功")
             self._save_cookies()
             self._save_user_info()
             return True
@@ -90,10 +91,8 @@ class DoubanAuth:
         cookies = self.session.cookies.get_dict()
         with open(self.cookies_file, 'w', encoding='utf-8') as f:
             json.dump(cookies, f, ensure_ascii=False)
-        try:
-            os.chmod(self.cookies_file, 0o600)
-        except OSError:
-            pass  # Windows 下权限模型不同，忽略
+        if not restrict_file_permissions(self.cookies_file):
+            print(f"[WARN] 无法自动收紧 {self.cookies_file} 的访问权限，请确认该文件仅当前用户可读写。")
 
     def _save_user_info(self):
         """保存用户信息"""
@@ -127,9 +126,9 @@ class DoubanAuth:
                 
                 with open(self.user_info_file, 'w', encoding='utf-8') as f:
                     json.dump(user_info, f, ensure_ascii=False)
-                print(f"✓ 获取用户信息成功: {user_id} ({user_name})")
+                print(f"[OK] 获取用户信息成功: {user_id} ({user_name})")
             else:
-                print("⚠ 无法获取用户ID，请手动检查 cookies 是否包含有效登录信息。")
+                print("[WARN] 无法获取用户 ID，请手动检查 cookies 是否包含有效登录信息。")
 
         except Exception as e:
             print(f"获取用户信息失败: {e}")

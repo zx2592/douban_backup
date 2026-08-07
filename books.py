@@ -3,8 +3,6 @@
 """
 import re
 from base import BaseCrawler
-from base import BaseCrawler
-# from config import DOUBAN_BASE_URL
 
 
 class BookCrawler(BaseCrawler):
@@ -14,8 +12,8 @@ class BookCrawler(BaseCrawler):
         'reading': '在读'
     }
 
-    def __init__(self, session):
-        super().__init__(session)
+    def __init__(self, session, state_store=None):
+        super().__init__(session, category_key='books', state_store=state_store)
         self.user_id = None
 
     def set_user_id(self, user_id):
@@ -24,17 +22,17 @@ class BookCrawler(BaseCrawler):
     def crawl_wish_books(self):
         """爬取想读的书籍"""
         url = f"https://book.douban.com/people/{self.user_id}/wish?start=0&type=book"
-        return self.crawl(url, 'wish')
+        return self.crawl_collection(url, 'wish')
 
     def crawl_collect_books(self):
         """爬取已读的书籍"""
         url = f"https://book.douban.com/people/{self.user_id}/collect?start=0&type=book"
-        return self.crawl(url, 'collect')
+        return self.crawl_collection(url, 'collect')
 
     def crawl_reading_books(self):
         """爬取在读的书籍"""
         url = f"https://book.douban.com/people/{self.user_id}/reading?start=0&type=book"
-        return self.crawl(url, 'reading')
+        return self.crawl_collection(url, 'reading')
 
     def _parse_items(self, response, collection_type=None):
         """解析书籍条目"""

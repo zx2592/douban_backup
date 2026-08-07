@@ -13,8 +13,8 @@ class MusicCrawler(BaseCrawler):
         'do': '在听'
     }
 
-    def __init__(self, session):
-        super().__init__(session)
+    def __init__(self, session, state_store=None):
+        super().__init__(session, category_key='music', state_store=state_store)
         self.user_id = None
 
     def set_user_id(self, user_id):
@@ -22,9 +22,9 @@ class MusicCrawler(BaseCrawler):
 
     def crawl_all_music(self):
         return {
-            'wish': self.crawl(f"https://music.douban.com/people/{self.user_id}/wish", 'wish'),
-            'collect': self.crawl(f"https://music.douban.com/people/{self.user_id}/collect", 'collect'),
-            'do': self.crawl(f"https://music.douban.com/people/{self.user_id}/do", 'do')
+            'wish': self.crawl_collection(f"https://music.douban.com/people/{self.user_id}/wish", 'wish'),
+            'collect': self.crawl_collection(f"https://music.douban.com/people/{self.user_id}/collect", 'collect'),
+            'do': self.crawl_collection(f"https://music.douban.com/people/{self.user_id}/do", 'do')
         }
 
     def _parse_items(self, response, collection_type=None):

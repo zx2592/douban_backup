@@ -7,6 +7,7 @@ import os
 from config import DATA_DIR
 import requests
 from config import HEADERS
+from file_security import restrict_file_permissions
 
 def parse_cookies(cookie_str):
     """解析Cookie字符串为字典"""
@@ -25,11 +26,9 @@ def save_cookies(cookies):
     filepath = os.path.join(DATA_DIR, 'cookies.json')
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(cookies, f, ensure_ascii=False)
-    try:
-        os.chmod(filepath, 0o600)
-    except OSError:
-        pass  # Windows 下权限模型不同，忽略
-    print(f"✓ Cookies 已保存到: {filepath}")
+    if not restrict_file_permissions(filepath):
+        print(f"[WARN] 无法自动收紧 {filepath} 的访问权限，请确认该文件仅当前用户可读写。")
+    print(f"[OK] Cookies 已保存到: {filepath}")
 
 def verify_cookies(cookies):
     """验证Cookies是否有效"""
