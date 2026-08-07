@@ -6,10 +6,15 @@ def classify_response(response):
     response_url = getattr(response, "url", "") or ""
     response_text = getattr(response, "text", "") or ""
 
-    if "accounts/login" in response_url:
+    if "accounts/login" in response_url or status_code == 401:
         return "error", "login_expired", "登录已失效，请重新导入 Cookie。"
 
-    if status_code == 403 or "异常请求" in response_text:
+    if (
+        status_code in (403, 429)
+        or "异常请求" in response_text
+        or "/misc/sorry" in response_url
+        or "sec.douban.com" in response_url
+    ):
         return "error", "rate_limited", "请求受限，可能触发了豆瓣风控。"
 
     if status_code == 404 or "页面不存在" in response_text:
@@ -17,6 +22,9 @@ def classify_response(response):
 
     if status_code >= 500:
         return "error", "server_error", "豆瓣服务暂时不可用。"
+
+    if status_code >= 400:
+        return "error", "http_error", f"豆瓣返回 HTTP {status_code}。"
 
     return "ok", "ok", "可访问"
 
@@ -32,3 +40,7 @@ def describe_empty_parse(response):
     if any(marker in response_text for marker in empty_markers):
         return "当前分类暂无数据。"
     return "页面返回成功，但未解析到条目，可能是页面结构发生了变化。"
+
+
+def is_known_empty_page(response):
+    return describe_empty_parse(response) == "当前分类暂无数据。"

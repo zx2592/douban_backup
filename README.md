@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.51](https://img.shields.io/badge/version-1.51-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.52](https://img.shields.io/badge/version-1.52-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.51 已修复公开数据抓取时书籍、音乐和游戏短评无法导出的问题。
+> v1.52 提升了抓取可靠性：加入账号隔离的断点恢复、分页完整性保护、响应诊断、备份元数据、导出安全加固，并完善命令行（verify / --only / --skip / --output / --no-resume）与测试覆盖。
 
 ---
 
@@ -88,8 +88,21 @@ python main.py movies
 # 只备份书籍
 python main.py books
 
+# 只备份音乐
+python main.py music
+
+# 只备份游戏
+python main.py games
+
+# 先校验登录状态和分类页面是否可访问
+python main.py verify
+
 # 查看历史备份
 python main.py list
+
+# 自由选择或排除分类
+python main.py --only movies,books
+python main.py --skip music,games
 ```
 
 ### 4. 查看结果
@@ -99,8 +112,25 @@ python main.py list
 ```
 data/backup/
 ├── douban_backup_20260331_143000.xlsx   # 精美 Excel 报告
-└── douban_backup_20260331_143000.json   # 结构化原始数据
+├── douban_backup_20260331_143000.json   # 结构化原始数据与备份元数据
+└── backup_state_<账号摘要>.json          # 未完成任务的断点状态
 ```
+
+JSON 文件使用统一的顶层结构：
+
+```json
+{
+  "metadata": {
+    "app_version": "1.52",
+    "backup_mode": "authenticated",
+    "generated_at": "2026-08-06T20:00:00-07:00",
+    "selected_categories": ["movies", "books"]
+  },
+  "data": {}
+}
+```
+
+程序异常中断或无法确认分页结束时会保留断点，下次使用同一账号和输出目录运行即可继续。不同账号的断点相互隔离。
 
 ### 5. 爬取公开数据（无需登录）
 
@@ -110,6 +140,9 @@ python crawl_public.py <用户ID>
 
 # 或直接运行，交互式输入
 python crawl_public.py
+
+# 也可通过统一入口选择分类和输出目录
+python main.py --public <用户ID> --only movies,books --output D:\douban-backup
 ```
 
 ---
@@ -128,7 +161,13 @@ python crawl_public.py
 ├── games.py             # 游戏数据爬取
 ├── crawl_public.py      # 免登录公开数据爬取（独立脚本）
 ├── storage.py           # 数据存储（JSON + 美化 Excel 导出）
+├── backup_state.py      # 账号隔离的断点恢复
+├── backup_metadata.py   # 备份版本、模式和生成时间元数据
+├── diagnostics.py       # 登录失效、风控和页面异常诊断
+├── excel_safety.py      # Excel 公式注入保护
+├── file_security.py     # Cookie 文件权限保护
 ├── requirements.txt     # Python 依赖
+├── tests/               # 离线解析和流程测试
 └── data/
     ├── cookies.json     # 登录凭据（自动生成，权限 600）
     ├── user_info.json   # 用户信息缓存
@@ -139,9 +178,19 @@ python crawl_public.py
 
 ## 更新日志
 
+### v1.52 — 可靠性与命令行增强
+
+- **可靠的断点恢复** — 请求失败、分页异常或手动中断时保留进度；状态按豆瓣账号隔离并采用原子写入
+- **分页完整性保护** — 无法确认最后一页时不再误报成功或清除断点
+- **响应诊断** — 明确区分登录失效、访问限制、风控、页面不存在和服务端错误
+- **备份元数据** — JSON 和 Excel 记录应用版本、备份模式、账号、生成时间和所选分类
+- **导出安全加固** — 防止外部文本在 Excel 中被解释为公式，并收紧 Cookie 文件访问权限
+- **命令行完善** — 支持电影、书籍、音乐和游戏四类快捷命令，以及 `verify`、`--only`、`--skip`、`--output` 和 `--no-resume`
+- **测试覆盖** — 增加四类页面结构、断点隔离、原子写入、错误重试和分页异常测试
+
 ### v1.51 — 公开数据短评修复
 
-- **修复书籍、音乐、游戏短评导出** — `crawl_public.py` 现在统一读取页面中的短评元素，避免音乐短评与日期同项时被忽略，也不再将游戏简介误作短评。
+- **修复短评导出** — 公开和登录模式统一精确读取电影、书籍、音乐、游戏短评，避免音乐短评与日期同项时被忽略，也不再将游戏简介误作短评
 
 ### v1.5 — 安全性加固
 

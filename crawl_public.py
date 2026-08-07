@@ -461,10 +461,9 @@ def parse_game_item(item):
         
         url = title_tag.get('href', '') if title_tag else ''
         subject_id = ''
-        if 'subject' in url:
-            match = re.search(r'subject/(\d+)', url)
-            if match:
-                subject_id = match.group(1)
+        match = re.search(r'(?:subject|game)/(\d+)', url)
+        if match:
+            subject_id = match.group(1)
 
         img_tag = item.select_one('img')
         cover = img_tag.get('src', '') if img_tag else ''

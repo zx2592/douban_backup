@@ -12,6 +12,20 @@ class CliDispatchTests(unittest.TestCase):
 
         instance.verify.assert_called_once()
 
+    def test_main_dispatches_music_category(self):
+        with patch("main.DoubanBackup") as backup_cls:
+            instance = backup_cls.return_value
+            main.main(["music"])
+
+        instance.backup_category.assert_called_once_with("music")
+
+    def test_main_dispatches_games_category(self):
+        with patch("main.DoubanBackup") as backup_cls:
+            instance = backup_cls.return_value
+            main.main(["games"])
+
+        instance.backup_category.assert_called_once_with("games")
+
     def test_main_dispatches_public_backup_with_filtered_categories(self):
         with patch("main.run_public_backup") as run_public:
             main.main(

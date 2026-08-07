@@ -151,12 +151,6 @@ class DataStorage:
         print(f"  已保存: {filepath}")
         return filepath
 
-    def save_movies_json(self, movies_data):
-        return self.save_json(movies_data, 'movies')
-
-    def save_books_json(self, books_data):
-        return self.save_json(books_data, 'books')
-
     def save_all_json(self, all_data):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         return self.save_json(all_data, f"douban_backup_{timestamp}")
@@ -417,7 +411,7 @@ class DataStorage:
         # 找到第一个表头行位置
         ws.freeze_panes = 'A2'
 
-    # ───────── 兼容旧接口 ─────────
+    # ───────── 备份列表 ─────────
 
     def get_backup_list(self):
         files = []

@@ -89,8 +89,8 @@ class MovieCrawler(BaseCrawler):
                 
                 # Comment
                 comment = ''
-                comment_tag = item.find('span', class_='comment')
-                if comment_tag: comment = comment_tag.get_text(strip=True)
+                comment_tag = item.select_one('.comment')
+                if comment_tag: comment = comment_tag.get_text(' ', strip=True)
                 
                 # Tags
                 tags = ''

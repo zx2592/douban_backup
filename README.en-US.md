@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.51](https://img.shields.io/badge/version-1.51-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.52](https://img.shields.io/badge/version-1.52-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.51 fixes the issue where book, music, and game short reviews could not be exported when crawling public data.
+> v1.52 improves crawl reliability: account-isolated resumable backup, pagination completeness protection, response diagnostics, backup metadata, hardened Excel export, plus a richer CLI (verify / --only / --skip / --output / --no-resume) and broader test coverage.
 
 ---
 
@@ -138,6 +138,16 @@ python crawl_public.py
 ---
 
 ## Changelog
+
+### v1.52 — Reliability & CLI Enhancements
+
+- **Resumable backup** — Progress is preserved on request failures, pagination errors, or manual interruption; state is isolated per Douban account and written atomically
+- **Pagination completeness protection** — No longer reports false success or clears the checkpoint when the last page cannot be confirmed
+- **Response diagnostics** — Clearly distinguishes login expiry, access restrictions, risk control, missing pages, and server errors
+- **Backup metadata** — JSON and Excel record app version, backup mode, account, generation time, and selected categories
+- **Hardened export** — Prevents external text from being interpreted as formulas in Excel, and tightens Cookie file permissions
+- **Richer CLI** — Adds dedicated commands for movies, books, music, and games, plus `verify`, `--only`, `--skip`, `--output`, and `--no-resume`
+- **Test coverage** — Adds tests for the four page structures, checkpoint isolation, atomic writes, error retries, and pagination anomalies
 
 ### v1.51 — Public Data Short Review Fix
 

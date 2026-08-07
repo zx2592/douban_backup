@@ -4,7 +4,6 @@
 import re
 from base import BaseCrawler
 from bs4 import BeautifulSoup
-from config import DOUBAN_BASE_URL
 
 class MusicCrawler(BaseCrawler):
     COLLECTION_MAP = {
@@ -63,15 +62,8 @@ class MusicCrawler(BaseCrawler):
                 if intro_tag: intro = intro_tag.get_text(strip=True)
                 artist = intro.split('/')[0].strip() if intro else ''
 
-                # Comment
-                comment = ''
-                lis = info.find_all('li')
-                if lis:
-                    last_li = lis[-1]
-                    if not last_li.get('class'):
-                         text = last_li.get_text(strip=True)
-                         if not re.match(r'\d{4}-\d{2}-\d{2}', text):
-                             comment = text
+                comment_tag = item.select_one('.comment')
+                comment = comment_tag.get_text(' ', strip=True) if comment_tag else ''
 
                 items.append({
                     'douban_id': douban_id,

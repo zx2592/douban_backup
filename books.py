@@ -96,8 +96,8 @@ class BookCrawler(BaseCrawler):
 
                 # Comment
                 comment = ''
-                comment_tag = item.find('p', class_='comment')
-                if comment_tag: comment = comment_tag.get_text(strip=True)
+                comment_tag = item.select_one('.comment')
+                if comment_tag: comment = comment_tag.get_text(' ', strip=True)
                 
                 # Date (if available in this view)
                 date = ''

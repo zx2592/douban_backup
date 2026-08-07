@@ -4,7 +4,6 @@
 import re
 from base import BaseCrawler
 from bs4 import BeautifulSoup
-from config import DOUBAN_BASE_URL
 
 class GameCrawler(BaseCrawler):
     COLLECTION_MAP = {
@@ -41,9 +40,9 @@ class GameCrawler(BaseCrawler):
                 
                 url = title_tag.get('href', '') if title_tag else ''
                 douban_id = ''
-                if 'subject' in url:
-                    match = re.search(r'subject/(\d+)', url)
-                    if match: douban_id = match.group(1)
+                match = re.search(r'(?:subject|game)/(\d+)', url)
+                if match:
+                    douban_id = match.group(1)
 
                 img = item.select_one('img')
                 cover = img.get('src', '') if img else ''
@@ -67,13 +66,8 @@ class GameCrawler(BaseCrawler):
                      parts = desc.split('/')
                      if parts: date = parts[0].strip()
 
-                comment = ''
-                info_div = item.select_one('.info')
-                if info_div:
-                     cloned = BeautifulSoup(str(info_div), 'html.parser')
-                     for tag in cloned.select('.title, .desc, .rating-info'):
-                         tag.decompose()
-                     comment = cloned.get_text(strip=True)
+                comment_tag = item.select_one('.comment')
+                comment = comment_tag.get_text(' ', strip=True) if comment_tag else ''
 
                 items.append({
                     'douban_id': douban_id,

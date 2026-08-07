@@ -1,8 +1,10 @@
 # config.py
 # 豆瓣配置
 
+import os
+
 DOUBAN_BASE_URL = 'https://www.douban.com'
-APP_VERSION = '1.51'
+APP_VERSION = '1.52'
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -15,8 +17,9 @@ REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 DELAY_BETWEEN_REQUESTS = 2
 
-# 数据存储目录
-DATA_DIR = 'data'
+# 数据存储目录始终相对于项目文件，而不是启动命令时的工作目录。
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(PROJECT_DIR, 'data')
 
 # 默认备份项目
 BACKUP_ITEMS = {

@@ -13,7 +13,7 @@ from auth import DoubanAuth
 from backup_metadata import build_metadata
 from backup_state import BackupState
 from books import BookCrawler
-from config import BACKUP_ITEMS, REQUEST_TIMEOUT
+from config import BACKUP_ITEMS, DATA_DIR, REQUEST_TIMEOUT
 from crawl_public import run_public_backup
 from diagnostics import classify_response
 from games import GameCrawler
@@ -64,8 +64,8 @@ def parse_args(argv=None):
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["verify", "list", "movies", "books"],
-        help="verify 校验登录和页面可访问性；list 查看备份；movies/books 单分类备份",
+        choices=["verify", "list", *VALID_CATEGORIES],
+        help="verify 校验登录和页面可访问性；list 查看备份；或指定单个分类备份",
     )
     parser.add_argument("--only", help="仅备份指定分类，逗号分隔，例如 movies,books")
     parser.add_argument("--skip", help="跳过指定分类，逗号分隔，例如 music,games")
@@ -81,10 +81,12 @@ class DoubanBackup:
         self.selected_items = list(selected_items or VALID_CATEGORIES)
         self.output_dir = output_dir
         self.storage = DataStorage(backup_dir=output_dir)
-        self.state_store = BackupState(self.storage.backup_dir) if checkpoint_enabled else None
+        self.checkpoint_enabled = checkpoint_enabled
+        self.state_store = None
         self.session = None
         self.user_id = None
         self.user_name = None
+        self.backup_incomplete = False
 
     def _build_metadata(self, backup_mode, selected_items=None):
         return build_metadata(
@@ -114,6 +116,13 @@ class DoubanBackup:
             print("\n保存数据...")
             self.storage.save_all_json(all_data)
             self.storage.save_all_excel(all_data)
+
+            if self.backup_incomplete or (
+                self.state_store and self.state_store.has_incomplete_collections()
+            ):
+                print("\n[WARN] 本次备份未完整结束，已保存部分数据和断点。")
+                self._print_summary(all_data)
+                return False
 
             if self.state_store:
                 self.state_store.clear()
@@ -220,6 +229,11 @@ class DoubanBackup:
         self.session = self.auth.get_session()
         self._load_user_info()
         if self.user_id:
+            if self.checkpoint_enabled:
+                self.state_store = BackupState(
+                    self.storage.backup_dir,
+                    user_id=self.user_id,
+                )
             return True
 
         self.session = None
@@ -228,7 +242,7 @@ class DoubanBackup:
 
     def _load_user_info(self):
         """加载用户信息"""
-        user_info_file = os.path.join("data", "user_info.json")
+        user_info_file = os.path.join(DATA_DIR, "user_info.json")
         if not os.path.exists(user_info_file):
             return None
 
@@ -249,24 +263,28 @@ class DoubanBackup:
             movie_crawler = MovieCrawler(self.session, state_store=self.state_store)
             movie_crawler.set_user_id(self.user_id)
             all_data["movies"] = movie_crawler.crawl_all_movies()
+            self.backup_incomplete |= movie_crawler.incomplete
 
         if "books" in self.selected_items:
             print("\n[书籍] 备份书籍...")
             book_crawler = BookCrawler(self.session, state_store=self.state_store)
             book_crawler.set_user_id(self.user_id)
             all_data["books"] = book_crawler.crawl_all_books()
+            self.backup_incomplete |= book_crawler.incomplete
 
         if "music" in self.selected_items:
             print("\n[音乐] 备份音乐...")
             music_crawler = MusicCrawler(self.session, state_store=self.state_store)
             music_crawler.set_user_id(self.user_id)
             all_data["music"] = music_crawler.crawl_all_music()
+            self.backup_incomplete |= music_crawler.incomplete
 
         if "games" in self.selected_items:
             print("\n[游戏] 备份游戏...")
             game_crawler = GameCrawler(self.session, state_store=self.state_store)
             game_crawler.set_user_id(self.user_id)
             all_data["games"] = game_crawler.crawl_all_games()
+            self.backup_incomplete |= game_crawler.incomplete
 
         return all_data
 
@@ -282,38 +300,35 @@ class DoubanBackup:
 
         print(f"\n文件已保存到 {self.storage.backup_dir}")
 
-    def backup_movies_only(self):
-        """只备份电影"""
+    def backup_category(self, category):
+        """备份一个指定分类。"""
         if not self._login():
             return False
 
-        self._prepare_storage("authenticated", ["movies"])
-        movie_crawler = MovieCrawler(self.session, state_store=self.state_store)
-        movie_crawler.set_user_id(self.user_id)
-        movies = movie_crawler.crawl_all_movies()
+        crawler_class, crawl_method = {
+            "movies": (MovieCrawler, "crawl_all_movies"),
+            "books": (BookCrawler, "crawl_all_books"),
+            "music": (MusicCrawler, "crawl_all_music"),
+            "games": (GameCrawler, "crawl_all_games"),
+        }[category]
 
-        self.storage.save_movies_json(movies)
-        self.storage.save_excel({"movies": movies}, "movies")
-        if self.state_store:
-            self.state_store.clear()
-        self._print_summary({"movies": movies})
-        return True
+        self._prepare_storage("authenticated", [category])
+        crawler = crawler_class(self.session, state_store=self.state_store)
+        crawler.set_user_id(self.user_id)
+        category_data = getattr(crawler, crawl_method)()
+        data = {category: category_data}
 
-    def backup_books_only(self):
-        """只备份书籍"""
-        if not self._login():
+        self.storage.save_json(category_data, category)
+        self.storage.save_excel(data, category)
+        if crawler.incomplete or (
+            self.state_store and self.state_store.has_incomplete_collections()
+        ):
+            print("\n[WARN] 本次备份未完整结束，已保存部分数据和断点。")
+            self._print_summary(data)
             return False
-
-        self._prepare_storage("authenticated", ["books"])
-        book_crawler = BookCrawler(self.session, state_store=self.state_store)
-        book_crawler.set_user_id(self.user_id)
-        books = book_crawler.crawl_all_books()
-
-        self.storage.save_books_json(books)
-        self.storage.save_excel({"books": books}, "books")
         if self.state_store:
             self.state_store.clear()
-        self._print_summary({"books": books})
+        self._print_summary(data)
         return True
 
     def list_backups(self):
@@ -348,10 +363,8 @@ def main(argv=None):
         return backup.verify()
     if args.command == "list":
         return backup.list_backups()
-    if args.command == "movies":
-        return backup.backup_movies_only()
-    if args.command == "books":
-        return backup.backup_books_only()
+    if args.command in VALID_CATEGORIES:
+        return backup.backup_category(args.command)
 
     return backup.run()
 
