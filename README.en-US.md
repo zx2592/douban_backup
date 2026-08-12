@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.52](https://img.shields.io/badge/version-1.52-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.53](https://img.shields.io/badge/version-1.53-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.52 improves crawl reliability: account-isolated resumable backup, pagination completeness protection, response diagnostics, backup metadata, hardened Excel export, plus a richer CLI (verify / --only / --skip / --output / --delay / --no-resume) and broader test coverage.
+> v1.53 adds configurable request delays: use `--delay SECONDS` to pace crawling and reduce rate-limit risk.
 
 ---
 
@@ -144,6 +144,10 @@ python crawl_public.py
 ---
 
 ## Changelog
+
+### v1.53 — Configurable Request Delay
+
+- **Reduced rate-limit risk** — Authenticated and public backups now accept `--delay SECONDS` to control the wait between requests; their defaults remain 2 seconds and 1 second respectively
 
 ### v1.52 — Reliability & CLI Enhancements
 

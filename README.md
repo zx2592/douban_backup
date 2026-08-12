@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.52](https://img.shields.io/badge/version-1.52-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.53](https://img.shields.io/badge/version-1.53-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.52 提升了抓取可靠性：加入账号隔离的断点恢复、分页完整性保护、响应诊断、备份元数据、导出安全加固，并完善命令行（verify / --only / --skip / --output / --delay / --no-resume）与测试覆盖。
+> v1.53 新增可配置请求间隔：使用 `--delay 秒数` 调整抓取节奏，降低访问过快被限制的风险。
 
 ---
 
@@ -124,7 +124,7 @@ JSON 文件使用统一的顶层结构：
 ```json
 {
   "metadata": {
-    "app_version": "1.52",
+    "app_version": "1.53",
     "backup_mode": "authenticated",
     "generated_at": "2026-08-06T20:00:00-07:00",
     "selected_categories": ["movies", "books"]
@@ -186,6 +186,10 @@ python main.py --public <用户ID> --delay 5
 ---
 
 ## 更新日志
+
+### v1.53 — 可配置请求间隔
+
+- **降低访问限制风险** — 登录和公开数据备份均支持 `--delay 秒数`，可按需调整每次请求之间的等待时间；默认分别为 2 秒和 1 秒
 
 ### v1.52 — 可靠性与命令行增强
 
