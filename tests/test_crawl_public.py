@@ -70,6 +70,12 @@ class CrawlPublicTests(unittest.TestCase):
             urls,
         )
 
+    def test_standalone_cli_passes_request_delay(self):
+        with patch.object(crawl_public, "run_public_backup") as run_public:
+            crawl_public.main(["demo-user", "--delay", "2.5"])
+
+        run_public.assert_called_once_with("demo-user", request_delay=2.5)
+
 
 if __name__ == "__main__":
     unittest.main()

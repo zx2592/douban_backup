@@ -15,18 +15,27 @@ class BaseCrawler:
     PAGE_SIZE = 15
     RETRYABLE_RESPONSE_CODES = {"rate_limited", "server_error"}
 
-    def __init__(self, session, category_key=None, state_store=None):
+    def __init__(
+        self,
+        session,
+        category_key=None,
+        state_store=None,
+        request_delay=DELAY_BETWEEN_REQUESTS,
+    ):
         self.session = session
         self.data = []
         self.category_key = category_key
         self.state_store = state_store
+        self.request_delay = (
+            DELAY_BETWEEN_REQUESTS if request_delay is None else request_delay
+        )
         self.incomplete = False
 
     def _make_request(self, url, retries=MAX_RETRIES):
         """发起HTTP请求，带重试机制"""
         for i in range(retries):
             try:
-                time.sleep(DELAY_BETWEEN_REQUESTS)
+                time.sleep(self.request_delay)
                 response = self.session.get(url, timeout=REQUEST_TIMEOUT)
                 status, code, message = classify_response(response)
                 if status == "ok" or code not in self.RETRYABLE_RESPONSE_CODES:

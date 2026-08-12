@@ -7,6 +7,7 @@ import os
 import re
 import time
 import sys
+import argparse
 import requests
 from bs4 import BeautifulSoup
 from openpyxl import Workbook
@@ -32,6 +33,7 @@ DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'd
 OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 DEFAULT_CATEGORIES = ['movies', 'books', 'music', 'games']
+DEFAULT_REQUEST_DELAY = 1
 
 
 def get_comment(item):
@@ -40,7 +42,7 @@ def get_comment(item):
     return comment_tag.get_text(' ', strip=True) if comment_tag else ''
 
 
-def crawl_movies():
+def crawl_movies(request_delay=DEFAULT_REQUEST_DELAY):
     """爬取电影数据"""
     print("\n[电影] 爬取电影数据...")
     all_movies = {'wish': [], 'collect': [], 'do': []}
@@ -87,7 +89,7 @@ def crawl_movies():
                     break
 
                 page += 1
-                time.sleep(1)
+                time.sleep(request_delay)
 
             except Exception as e:
                 print(f"    错误: {e}")
@@ -153,7 +155,7 @@ def parse_movie_item(item):
         return None
 
 
-def crawl_books():
+def crawl_books(request_delay=DEFAULT_REQUEST_DELAY):
     """爬取书籍数据"""
     print("\n[书籍] 爬取书籍数据...")
     all_books = {'wish': [], 'collect': [], 'reading': []}
@@ -206,7 +208,7 @@ def crawl_books():
                     break
 
                 page += 1
-                time.sleep(1)
+                time.sleep(request_delay)
 
             except Exception as e:
                 print(f"    错误: {e}")
@@ -286,7 +288,7 @@ def parse_book_item(item):
         return None
 
 
-def crawl_music():
+def crawl_music(request_delay=DEFAULT_REQUEST_DELAY):
     """爬取音乐数据"""
     print("\n[音乐] 爬取音乐数据...")
     all_music = {'wish': [], 'collect': [], 'do': []}
@@ -333,7 +335,7 @@ def crawl_music():
                     break
 
                 page += 1
-                time.sleep(1)
+                time.sleep(request_delay)
 
             except Exception as e:
                 print(f"    错误: {e}")
@@ -395,7 +397,7 @@ def parse_music_item(item):
         return None
 
 
-def crawl_games():
+def crawl_games(request_delay=DEFAULT_REQUEST_DELAY):
     """爬取游戏数据"""
     print("\n[游戏] 爬取游戏数据...")
     all_games = {'wish': [], 'collect': [], 'do': []}
@@ -442,7 +444,7 @@ def crawl_games():
                     break
 
                 page += 1
-                time.sleep(1)
+                time.sleep(request_delay)
 
             except Exception as e:
                 print(f"    错误: {e}")
@@ -564,7 +566,7 @@ def save_excel(data, filename, metadata=None):
     return filepath
 
 
-def run_public_backup(user_id, categories=None, output_dir=None):
+def run_public_backup(user_id, categories=None, output_dir=None, request_delay=None):
     global USER_ID, OUTPUT_DIR
 
     USER_ID = user_id
@@ -572,6 +574,9 @@ def run_public_backup(user_id, categories=None, output_dir=None):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     categories = list(categories or DEFAULT_CATEGORIES)
+    request_delay = (
+        DEFAULT_REQUEST_DELAY if request_delay is None else request_delay
+    )
     metadata = build_metadata(
         backup_mode='public',
         selected_categories=categories,
@@ -597,7 +602,7 @@ def run_public_backup(user_id, categories=None, output_dir=None):
 
     try:
         for category in categories:
-            category_data = crawlers[category]()
+            category_data = crawlers[category](request_delay=request_delay)
             all_data[category] = category_data
             save_json(
                 category_data,
@@ -641,22 +646,44 @@ def run_public_backup(user_id, categories=None, output_dir=None):
         return all_data
 
 
-def main():
-    global USER_ID
+def non_negative_delay(raw_value):
+    try:
+        delay = float(raw_value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("间隔时间必须是数字。") from error
+    if delay < 0:
+        raise argparse.ArgumentTypeError("间隔时间不能小于 0。")
+    return delay
 
-    if len(sys.argv) > 1:
-        USER_ID = sys.argv[1]
-    else:
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="豆瓣公开数据备份工具")
+    parser.add_argument("user_id", nargs="?", help="豆瓣用户 ID")
+    parser.add_argument(
+        "--delay",
+        type=non_negative_delay,
+        metavar="SECONDS",
+        help="每次请求之间等待的秒数，默认 1 秒",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    user_id = args.user_id
+
+    if not user_id:
         USER_ID = input("请输入豆瓣用户ID: ").strip()
         if not USER_ID:
             print("用户ID不能为空!")
-            print("用法: python crawl_public.py <用户ID>")
+            print("用法: python crawl_public.py <用户ID> [--delay 秒数]")
             return
+        user_id = USER_ID
 
     print("=" * 50)
     print("[豆瓣数据备份工具]")
     print("=" * 50)
-    run_public_backup(USER_ID)
+    run_public_backup(user_id, request_delay=args.delay)
 
 
 if __name__ == '__main__':

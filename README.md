@@ -6,7 +6,7 @@
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.52 提升了抓取可靠性：加入账号隔离的断点恢复、分页完整性保护、响应诊断、备份元数据、导出安全加固，并完善命令行（verify / --only / --skip / --output / --no-resume）与测试覆盖。
+> v1.52 提升了抓取可靠性：加入账号隔离的断点恢复、分页完整性保护、响应诊断、备份元数据、导出安全加固，并完善命令行（verify / --only / --skip / --output / --delay / --no-resume）与测试覆盖。
 
 ---
 
@@ -41,7 +41,7 @@
 
 ### 防反爬策略
 
-- 请求间隔 2 秒智能延迟
+- **可配置请求间隔** — 使用 `--delay 秒数` 调整每次请求之间的等待时间，降低访问过快被限制的风险（登录备份默认 2 秒，公开备份默认 1 秒）
 - 失败自动重试（最多 3 次）
 - 30 秒请求超时保护
 - 浏览器级 User-Agent 伪装
@@ -103,6 +103,9 @@ python main.py list
 # 自由选择或排除分类
 python main.py --only movies,books
 python main.py --skip music,games
+
+# 调整每次请求之间的等待时间（秒），降低访问过快被限制的风险
+python main.py --delay 5
 ```
 
 ### 4. 查看结果
@@ -138,11 +141,17 @@ JSON 文件使用统一的顶层结构：
 # 通过命令行参数指定用户 ID
 python crawl_public.py <用户ID>
 
+# 公开数据备份同样支持请求间隔
+python crawl_public.py <用户ID> --delay 5
+
 # 或直接运行，交互式输入
 python crawl_public.py
 
 # 也可通过统一入口选择分类和输出目录
 python main.py --public <用户ID> --only movies,books --output D:\douban-backup
+
+# 统一入口的公开数据模式
+python main.py --public <用户ID> --delay 5
 ```
 
 ---

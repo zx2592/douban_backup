@@ -28,6 +28,18 @@ class DummyCrawler(BaseCrawler):
 
 class BaseCrawlerTests(unittest.TestCase):
     @patch("base.time.sleep")
+    def test_uses_configured_request_delay(self, sleep):
+        session = Mock()
+        response = DummyResponse()
+        session.get.return_value = response
+        crawler = DummyCrawler(session)
+        crawler.request_delay = 4.5
+
+        self.assertIs(crawler._make_request("https://example.test/delayed"), response)
+
+        sleep.assert_called_once_with(4.5)
+
+    @patch("base.time.sleep")
     def test_not_found_response_is_not_retried(self, _sleep):
         session = Mock()
         response = DummyResponse(status_code=404)

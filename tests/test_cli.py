@@ -45,6 +45,31 @@ class CliDispatchTests(unittest.TestCase):
             "demo-user",
             categories=["movies"],
             output_dir="D:\\exports",
+            request_delay=None,
+        )
+
+    def test_main_passes_custom_request_delay_to_backup(self):
+        with patch("main.DoubanBackup") as backup_cls:
+            instance = backup_cls.return_value
+            main.main(["--delay", "4.5"])
+
+        backup_cls.assert_called_once_with(
+            selected_items=["movies", "books", "music", "games"],
+            output_dir=None,
+            checkpoint_enabled=True,
+            request_delay=4.5,
+        )
+        instance.run.assert_called_once()
+
+    def test_main_passes_custom_request_delay_to_public_backup(self):
+        with patch("main.run_public_backup") as run_public:
+            main.main(["--public", "demo-user", "--delay", "3"])
+
+        run_public.assert_called_once_with(
+            "demo-user",
+            categories=["movies", "books", "music", "games"],
+            output_dir=None,
+            request_delay=3.0,
         )
 
 
