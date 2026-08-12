@@ -6,7 +6,7 @@
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.52 improves crawl reliability: account-isolated resumable backup, pagination completeness protection, response diagnostics, backup metadata, hardened Excel export, plus a richer CLI (verify / --only / --skip / --output / --no-resume) and broader test coverage.
+> v1.52 improves crawl reliability: account-isolated resumable backup, pagination completeness protection, response diagnostics, backup metadata, hardened Excel export, plus a richer CLI (verify / --only / --skip / --output / --delay / --no-resume) and broader test coverage.
 
 ---
 
@@ -41,7 +41,7 @@ A personal data backup tool for Douban — One-click export of all your **movies
 
 ### Anti-Crawling Strategies
 
-- 2-second smart request delay
+- **Configurable request delay** — use `--delay SECONDS` to adjust the wait between requests and reduce rate-limit risk (default: 2 seconds for authenticated backups, 1 second for public backups)
 - Automatic retry on failure (up to 3 times)
 - 30-second request timeout protection
 - Browser-level User-Agent spoofing
@@ -88,6 +88,9 @@ python main.py movies
 # Back up only Books
 python main.py books
 
+# Adjust the delay between requests (in seconds) to reduce rate-limit risk
+python main.py --delay 5
+
 # View historical backups
 python main.py list
 ```
@@ -107,6 +110,9 @@ data/backup/
 ```bash
 # Specify user ID via command-line argument
 python crawl_public.py <UserID>
+
+# Public backups support the same delay option
+python crawl_public.py <UserID> --delay 5
 
 # Or run directly for interactive input
 python crawl_public.py

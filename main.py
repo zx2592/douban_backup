@@ -37,6 +37,16 @@ def parse_category_list(raw_value):
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
+def non_negative_delay(raw_value):
+    try:
+        delay = float(raw_value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("间隔时间必须是数字。") from error
+    if delay < 0:
+        raise argparse.ArgumentTypeError("间隔时间不能小于 0。")
+    return delay
+
+
 def resolve_selected_items(only=None, skip=None):
     if only:
         selected = parse_category_list(only)
@@ -71,17 +81,30 @@ def parse_args(argv=None):
     parser.add_argument("--skip", help="跳过指定分类，逗号分隔，例如 music,games")
     parser.add_argument("--public", metavar="USER_ID", help="使用公开页面模式备份指定用户")
     parser.add_argument("--output", help="导出目录，默认使用 data/backup")
+    parser.add_argument(
+        "--delay",
+        type=non_negative_delay,
+        metavar="SECONDS",
+        help="每次请求之间等待的秒数；默认登录备份为 2 秒，公开备份为 1 秒",
+    )
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
     return parser.parse_args(argv)
 
 
 class DoubanBackup:
-    def __init__(self, selected_items=None, output_dir=None, checkpoint_enabled=True):
+    def __init__(
+        self,
+        selected_items=None,
+        output_dir=None,
+        checkpoint_enabled=True,
+        request_delay=None,
+    ):
         self.auth = DoubanAuth()
         self.selected_items = list(selected_items or VALID_CATEGORIES)
         self.output_dir = output_dir
         self.storage = DataStorage(backup_dir=output_dir)
         self.checkpoint_enabled = checkpoint_enabled
+        self.request_delay = request_delay
         self.state_store = None
         self.session = None
         self.user_id = None
@@ -260,28 +283,44 @@ class DoubanBackup:
 
         if "movies" in self.selected_items:
             print("\n[电影] 备份电影...")
-            movie_crawler = MovieCrawler(self.session, state_store=self.state_store)
+            movie_crawler = MovieCrawler(
+                self.session,
+                state_store=self.state_store,
+                request_delay=self.request_delay,
+            )
             movie_crawler.set_user_id(self.user_id)
             all_data["movies"] = movie_crawler.crawl_all_movies()
             self.backup_incomplete |= movie_crawler.incomplete
 
         if "books" in self.selected_items:
             print("\n[书籍] 备份书籍...")
-            book_crawler = BookCrawler(self.session, state_store=self.state_store)
+            book_crawler = BookCrawler(
+                self.session,
+                state_store=self.state_store,
+                request_delay=self.request_delay,
+            )
             book_crawler.set_user_id(self.user_id)
             all_data["books"] = book_crawler.crawl_all_books()
             self.backup_incomplete |= book_crawler.incomplete
 
         if "music" in self.selected_items:
             print("\n[音乐] 备份音乐...")
-            music_crawler = MusicCrawler(self.session, state_store=self.state_store)
+            music_crawler = MusicCrawler(
+                self.session,
+                state_store=self.state_store,
+                request_delay=self.request_delay,
+            )
             music_crawler.set_user_id(self.user_id)
             all_data["music"] = music_crawler.crawl_all_music()
             self.backup_incomplete |= music_crawler.incomplete
 
         if "games" in self.selected_items:
             print("\n[游戏] 备份游戏...")
-            game_crawler = GameCrawler(self.session, state_store=self.state_store)
+            game_crawler = GameCrawler(
+                self.session,
+                state_store=self.state_store,
+                request_delay=self.request_delay,
+            )
             game_crawler.set_user_id(self.user_id)
             all_data["games"] = game_crawler.crawl_all_games()
             self.backup_incomplete |= game_crawler.incomplete
@@ -313,7 +352,11 @@ class DoubanBackup:
         }[category]
 
         self._prepare_storage("authenticated", [category])
-        crawler = crawler_class(self.session, state_store=self.state_store)
+        crawler = crawler_class(
+            self.session,
+            state_store=self.state_store,
+            request_delay=self.request_delay,
+        )
         crawler.set_user_id(self.user_id)
         category_data = getattr(crawler, crawl_method)()
         data = {category: category_data}
@@ -351,12 +394,14 @@ def main(argv=None):
             args.public,
             categories=selected_items,
             output_dir=args.output,
+            request_delay=args.delay,
         )
 
     backup = DoubanBackup(
         selected_items=selected_items,
         output_dir=args.output,
         checkpoint_enabled=not args.no_resume,
+        request_delay=args.delay,
     )
 
     if args.command == "verify":
