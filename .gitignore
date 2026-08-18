@@ -8,6 +8,10 @@ data/
 cookies.json
 user_info.json
 
+# Analysis workspace artifacts
+analysis/node_modules/
+analysis/*.db
+
 # Environment
 .env
 venv/

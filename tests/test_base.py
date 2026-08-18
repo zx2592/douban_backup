@@ -4,6 +4,11 @@ from unittest.mock import Mock, patch
 
 from backup_state import BackupState
 from base import BaseCrawler
+from books import BookCrawler
+from config import DELAY_BETWEEN_REQUESTS
+from games import GameCrawler
+from movies import MovieCrawler
+from music import MusicCrawler
 
 
 class DummyResponse:
@@ -96,6 +101,26 @@ class BaseCrawlerTests(unittest.TestCase):
 
             self.assertEqual(len(result), 1)
             self.assertTrue(state.is_collection_complete("movies", "collect"))
+
+
+class CrawlerRequestDelayTests(unittest.TestCase):
+    CRAWLER_CLASSES = (MovieCrawler, BookCrawler, MusicCrawler, GameCrawler)
+
+    def test_crawlers_accept_custom_request_delay(self):
+        for crawler_class in self.CRAWLER_CLASSES:
+            with self.subTest(crawler=crawler_class.__name__):
+                crawler = crawler_class(
+                    session=None,
+                    state_store=None,
+                    request_delay=4.5,
+                )
+                self.assertEqual(crawler.request_delay, 4.5)
+
+    def test_crawlers_fall_back_to_default_request_delay(self):
+        for crawler_class in self.CRAWLER_CLASSES:
+            with self.subTest(crawler=crawler_class.__name__):
+                crawler = crawler_class(session=None, request_delay=None)
+                self.assertEqual(crawler.request_delay, DELAY_BETWEEN_REQUESTS)
 
 
 if __name__ == "__main__":

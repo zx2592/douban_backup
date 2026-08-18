@@ -147,5 +147,67 @@ class ExcelSafetyTests(unittest.TestCase):
         self.assertIn("timezone", payload["metadata"])
 
 
+class OverviewSheetTests(unittest.TestCase):
+    HEADER_ROW = 4
+
+    def _overview_headers(self, data):
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
+            storage, "DATA_DIR", tmpdir
+        ):
+            data_storage = storage.DataStorage()
+            path = data_storage.save_excel(data, "overview_headers")
+            workbook = load_workbook(path)
+            worksheet = workbook["总览"]
+            return [
+                worksheet.cell(row=self.HEADER_ROW, column=col).value
+                for col in range(1, 6)
+            ]
+
+    def test_single_category_uses_its_own_status_labels(self):
+        headers = self._overview_headers(
+            {"books": {"collect": [{"title": "书"}], "reading": [], "wish": []}}
+        )
+
+        self.assertEqual(headers, ["类别", "已读", "在读", "想读", "合计"])
+
+    def test_mixed_categories_use_neutral_status_labels(self):
+        headers = self._overview_headers(
+            {
+                "movies": {"collect": [{"title": "片"}], "do": [], "wish": []},
+                "books": {"collect": [{"title": "书"}], "reading": [], "wish": []},
+            }
+        )
+
+        self.assertEqual(headers, ["类别", "已完成", "进行中", "想要", "合计"])
+
+
+class CategorySheetTests(unittest.TestCase):
+    def _category_sheet(self, data, sheet_name):
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
+            storage, "DATA_DIR", tmpdir
+        ):
+            data_storage = storage.DataStorage()
+            path = data_storage.save_excel(data, "category_sheet")
+            return load_workbook(path)[sheet_name]
+
+    def test_freeze_panes_keeps_first_header_row_visible(self):
+        worksheet = self._category_sheet(
+            {"movies": {"collect": [{"title": "片", "douban_id": "1"}]}},
+            "电影",
+        )
+
+        self.assertEqual(worksheet["A2"].value, "序号")
+        self.assertEqual(worksheet.freeze_panes, "A3")
+
+    def test_freeze_panes_follows_first_non_empty_status_group(self):
+        worksheet = self._category_sheet(
+            {"movies": {"collect": [], "do": [{"title": "片", "douban_id": "1"}]}},
+            "电影",
+        )
+
+        self.assertEqual(worksheet["A2"].value, "序号")
+        self.assertEqual(worksheet.freeze_panes, "A3")
+
+
 if __name__ == "__main__":
     unittest.main()

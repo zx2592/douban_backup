@@ -304,10 +304,16 @@ class DataStorage:
 
     def _get_overview_status_labels(self, data):
         """根据实际数据决定总览表的状态列标签"""
-        # 找到第一个有数据的类别，取其状态标签
-        for category in ['movies', 'books', 'music', 'games']:
-            if category in data and data[category]:
-                return [label for _, label, _ in _STATUS_ORDER[category]]
+        # 各类别的状态叫法不同（看过/已读/听过/玩过），
+        # 只有单类别导出时才能安全地用该类别的专属标签，
+        # 混合导出必须用中性标签，否则表头会张冠李戴。
+        present = [
+            category
+            for category in ['movies', 'books', 'music', 'games']
+            if category in data and data[category]
+        ]
+        if len(present) == 1:
+            return [label for _, label, _ in _STATUS_ORDER[present[0]]]
         return ['已完成', '进行中', '想要']
 
     # ───────── 类别 Sheet ─────────
@@ -322,6 +328,7 @@ class DataStorage:
             ws.column_dimensions[get_column_letter(ci)].width = width
 
         current_row = 1
+        first_header_row = None
 
         for status_key, status_label, color in _STATUS_ORDER[category]:
             items = cat_data.get(status_key, [])
@@ -351,7 +358,8 @@ class DataStorage:
                 cell.alignment = _HEADER_ALIGN
                 cell.border = _THIN_BORDER
             ws.row_dimensions[current_row].height = 26
-            header_row = current_row
+            if first_header_row is None:
+                first_header_row = current_row
             current_row += 1
 
             # ── 数据行 ──
@@ -407,9 +415,9 @@ class DataStorage:
             # 分组间空一行
             current_row += 1
 
-        # 冻结首行（第一个表头行）
-        # 找到第一个表头行位置
-        ws.freeze_panes = 'A2'
+        # 冻结到第一个表头行为止（分组标题行 + 表头行都保持可见）
+        if first_header_row is not None:
+            ws.freeze_panes = f'A{first_header_row + 1}'
 
     # ───────── 备份列表 ─────────
 

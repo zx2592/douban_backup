@@ -1,7 +1,11 @@
 import unittest
 from unittest.mock import Mock, patch
 
+from books import BookCrawler
+from games import GameCrawler
 from main import DoubanBackup
+from movies import MovieCrawler
+from music import MusicCrawler
 
 
 class BackupLoginTests(unittest.TestCase):
@@ -76,6 +80,32 @@ class BackupLoginTests(unittest.TestCase):
         music_cls.return_value.crawl_all_music.assert_called_once()
         book_cls.assert_not_called()
         game_cls.assert_not_called()
+
+    def test_backup_all_builds_real_crawlers_with_request_delay(self):
+        backup = DoubanBackup(request_delay=4.5)
+        backup.session = object()
+        backup.user_id = "demo"
+        crawlers = []
+
+        with patch.object(
+            MovieCrawler, "crawl_all_movies", autospec=True,
+            side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
+        ), patch.object(
+            BookCrawler, "crawl_all_books", autospec=True,
+            side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
+        ), patch.object(
+            MusicCrawler, "crawl_all_music", autospec=True,
+            side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
+        ), patch.object(
+            GameCrawler, "crawl_all_games", autospec=True,
+            side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
+        ):
+            data = backup._backup_all()
+
+        self.assertEqual(set(data), {"movies", "books", "music", "games"})
+        self.assertEqual(len(crawlers), 4)
+        for crawler in crawlers:
+            self.assertEqual(crawler.request_delay, 4.5)
 
     def test_verify_reports_login_failure(self):
         backup = DoubanBackup()
