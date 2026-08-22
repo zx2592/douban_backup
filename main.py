@@ -437,16 +437,13 @@ def main(argv=None):
     selected_items = resolve_selected_items(args.only, args.skip)
 
     if args.public:
-        if args.incremental:
-            # 公开模式走的是 crawl_public.py 里另一套抓取流程，没有断点和
-            # 重试，增量所依赖的基线在那里无从维护。与其悄悄忽略这个参数，
-            # 不如明确告知。
-            print("[WARN] 公开数据模式暂不支持 --incremental，本次将完整备份。")
         return run_public_backup(
             args.public,
             categories=selected_items,
             output_dir=args.output,
             request_delay=args.delay,
+            checkpoint_enabled=not args.no_resume,
+            incremental=args.incremental,
         )
 
     backup = DoubanBackup(

@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 from openpyxl import load_workbook
 
-import crawl_public
 import storage
 
 
@@ -92,60 +91,6 @@ class ExcelSafetyTests(unittest.TestCase):
         self.assertEqual(worksheet["D3"].value, "'@cmd")
         self.assertEqual(worksheet["E3"].value, "'-danger")
         self.assertEqual(worksheet["F3"].value, "'+2026-01-01")
-
-    def test_public_save_excel_escapes_formula_like_values(self):
-        data = {
-            "movies": {
-                "collect": [
-                    {
-                        "douban_id": "1",
-                        "title": "=SUM(1,1)",
-                        "rating": "5",
-                        "comment": "@comment",
-                        "date": "-2026-01-01",
-                        "cover": "+cover",
-                    }
-                ]
-            }
-        }
-
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
-            crawl_public, "OUTPUT_DIR", tmpdir
-        ):
-            path = crawl_public.save_excel(data, "public_formula_safe")
-            workbook = load_workbook(path)
-            worksheet = workbook.active
-
-        self.assertEqual(worksheet["C2"].value, "'=SUM(1,1)")
-        self.assertEqual(worksheet["F2"].value, "'@comment")
-        self.assertEqual(worksheet["G2"].value, "'-2026-01-01")
-        self.assertEqual(worksheet["H2"].value, "'-2026-01-01")
-
-    def test_public_save_json_wraps_data_with_metadata(self):
-        data = {"movies": {"collect": []}}
-
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
-            crawl_public, "OUTPUT_DIR", tmpdir
-        ):
-            path = crawl_public.save_json(
-                data,
-                "public_with_metadata",
-                metadata={
-                    "backup_mode": "public",
-                    "selected_categories": ["movies"],
-                    "user_id": "demo-user",
-                },
-            )
-
-            with open(path, "r", encoding="utf-8") as file_obj:
-                payload = json.load(file_obj)
-
-        self.assertEqual(payload["data"], data)
-        self.assertEqual(payload["metadata"]["backup_mode"], "public")
-        self.assertEqual(payload["metadata"]["selected_categories"], ["movies"])
-        self.assertEqual(payload["metadata"]["user_id"], "demo-user")
-        self.assertIn("generated_at", payload["metadata"])
-        self.assertIn("timezone", payload["metadata"])
 
 
 class OverviewSheetTests(unittest.TestCase):

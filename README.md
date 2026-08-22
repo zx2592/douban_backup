@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.55](https://img.shields.io/badge/version-1.55-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.56](https://img.shields.io/badge/version-1.56-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.55 新增增量备份：`python main.py --incremental` 只抓取上次备份之后新增和改动的条目，收藏多的账号可把几十次请求降到一两次。
+> v1.56 公开数据模式合并到统一抓取栈，因此同样支持失败重试、断点续传和增量备份，导出也升级为美化 Excel。
 
 ---
 
@@ -133,7 +133,7 @@ JSON 文件使用统一的顶层结构：
 ```json
 {
   "metadata": {
-    "app_version": "1.55",
+    "app_version": "1.56",
     "backup_mode": "authenticated",
     "generated_at": "2026-08-06T20:00:00-07:00",
     "selected_categories": ["movies", "books"]
@@ -161,7 +161,13 @@ python main.py --public <用户ID> --only movies,books --output D:\douban-backup
 
 # 统一入口的公开数据模式
 python main.py --public <用户ID> --delay 5
+
+# 公开模式同样支持增量备份和断点续传
+python crawl_public.py <用户ID> --incremental
+python main.py --public <用户ID> --incremental
 ```
+
+公开模式与登录备份共用同一套抓取逻辑，因此失败重试、响应诊断、断点续传、增量备份和美化 Excel 导出全部可用。公开模式的断点和基线与登录模式分开存放——同一个账号的公开主页看不到设为私密的条目，两者的数据并不相同，共用基线会让增量比对得出错误结论。
 
 ### 6. 增量备份
 
@@ -182,7 +188,7 @@ python main.py --incremental
 - **改动会被正确捕获** — 判断依据是标题、评分、评语、标记日期、标签组成的指纹，而不只是条目 ID。修改评分或评语会让条目重新排到最前面，工具会重新抓取并覆盖旧记录
 - **删除不会同步** — 你在豆瓣上取消收藏的条目不会再出现在页面上，但它仍留在基线里。需要清理已删除的条目时，运行一次不加 `--incremental` 的完整备份
 - **中断不会污染基线** — 备份未完整结束时基线保持不变，避免下次增量在残缺数据的边界就停下
-- **公开数据模式暂不支持** — `--public` 走的是另一套抓取流程，加 `--incremental` 会给出提示并退回完整备份
+- **公开模式同样支持** — `--public` 已合并到统一抓取栈，增量、断点和重试全部可用；其断点和基线与登录模式分开存放
 
 ---
 
@@ -217,6 +223,14 @@ python main.py --incremental
 ---
 
 ## 更新日志
+
+### v1.56 — 公开模式合并到统一抓取栈
+
+- **消除两套并行实现** — `crawl_public.py` 此前自带一整套抓取、分页、解析和导出逻辑，与 `base.py` 加四个分类爬虫大量重复，豆瓣改一次页面结构要改两处；现已改为复用同一套代码，该文件从 691 行降到 203 行
+- **公开模式获得完整能力** — 随之免费获得失败重试、响应诊断、断点续传和增量备份。此前公开模式请求失败直接放弃整个收藏夹，分页也只靠"不足一页即结束"的启发式判断，用户改用每页 30 条的列表视图时会提前截断
+- **公开模式导出升级** — 从单表 Excel 换成与登录备份一致的美化报告（元数据页、总览页、分类页、星级评分、可点击链接）
+- **状态隔离** — 公开模式的断点和基线以 `public:` 前缀独立存放；同一账号的公开主页看不到私密条目，与登录数据共用基线会让增量得出错误结论
+- **行为变化** — 公开模式不再额外输出每个分类的单独 JSON 文件，合并后的 `douban_backup_<时间戳>.json` 已包含全部数据
 
 ### v1.55 — 增量备份
 

@@ -5,7 +5,7 @@
 import time
 import re
 import json
-from config import REQUEST_TIMEOUT, MAX_RETRIES, DELAY_BETWEEN_REQUESTS, HEADERS
+from config import REQUEST_TIMEOUT, MAX_RETRIES, DELAY_BETWEEN_REQUESTS
 from bs4 import BeautifulSoup
 
 from diagnostics import classify_response, describe_empty_parse, is_known_empty_page

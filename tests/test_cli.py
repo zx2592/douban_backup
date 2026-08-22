@@ -46,6 +46,8 @@ class CliDispatchTests(unittest.TestCase):
             categories=["movies"],
             output_dir="D:\\exports",
             request_delay=None,
+            checkpoint_enabled=True,
+            incremental=False,
         )
 
     def test_main_passes_custom_request_delay_to_backup(self):
@@ -71,6 +73,8 @@ class CliDispatchTests(unittest.TestCase):
             categories=["movies", "books", "music", "games"],
             output_dir=None,
             request_delay=3.0,
+            checkpoint_enabled=True,
+            incremental=False,
         )
 
 

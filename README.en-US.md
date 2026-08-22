@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.55](https://img.shields.io/badge/version-1.55-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.56](https://img.shields.io/badge/version-1.56-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.55 adds incremental backup: `python main.py --incremental` fetches only entries added or edited since the last backup, cutting dozens of requests down to one or two for large accounts.
+> v1.56 folds public-data mode into the shared crawling stack, so it now gets retries, resumable checkpoints, and incremental backup too, and exports the same beautified Excel report.
 
 ---
 
@@ -125,7 +125,13 @@ python crawl_public.py <UserID> --delay 5
 
 # Or run directly for interactive input
 python crawl_public.py
+
+# Public mode supports incremental backup and checkpoints too
+python crawl_public.py <UserID> --incremental
+python main.py --public <UserID> --incremental
 ```
+
+Public mode shares its crawling logic with authenticated backup, so retries, response diagnostics, resumable checkpoints, incremental backup, and the beautified Excel export are all available. Its checkpoint and baseline are stored separately from the authenticated ones — a public profile hides entries marked private, so the two datasets differ and a shared baseline would make incremental comparison draw the wrong conclusion.
 
 ### 6. Incremental Backup
 
@@ -146,7 +152,7 @@ Things worth knowing:
 - **Edits are captured** — Entries are compared by a fingerprint of title, rating, review, mark date, and tags, not just by ID. Editing a rating or review pushes the entry back to the top, and the tool re-fetches it and overwrites the old record
 - **Deletions are not synced** — An entry you un-marked on Douban no longer appears on the page, but it stays in the baseline. Run a full backup (without `--incremental`) when you want deletions reflected
 - **Interruptions don't poison the baseline** — The baseline is left untouched when a backup doesn't finish, so the next incremental run won't stop at the edge of partial data
-- **Public mode is not supported yet** — `--public` uses a separate crawling path; passing `--incremental` prints a notice and falls back to a full backup
+- **Public mode is supported too** — `--public` now runs on the shared crawling stack, so incremental, checkpoints, and retries all work; its checkpoint and baseline are stored separately from the authenticated ones
 
 ---
 
@@ -165,6 +171,7 @@ Things worth knowing:
 ├── crawl_public.py      # Public data scraping without login (standalone script)
 ├── storage.py           # Data storage (JSON + beautified Excel export)
 ├── incremental.py       # Incremental backup fingerprinting and baseline store
+├── backup_state.py      # Per-account resumable checkpoints
 ├── requirements.txt     # Python dependencies
 └── data/
     ├── cookies.json     # Login credentials (auto-generated, permission 600)
@@ -175,6 +182,14 @@ Things worth knowing:
 ---
 
 ## Changelog
+
+### v1.56 — Public Mode Folded Into the Shared Crawling Stack
+
+- **Two parallel implementations eliminated** — `crawl_public.py` used to carry its own crawling, pagination, parsing, and export logic, duplicating `base.py` plus the four category crawlers; a single Douban layout change meant editing both. It now reuses the same code and shrank from 691 lines to 203
+- **Public mode gained the full feature set** — Retries, response diagnostics, resumable checkpoints, and incremental backup all come for free. Previously a failed request abandoned the entire collection, and pagination relied on a "fewer than one page means done" heuristic that truncates early for users browsing with 30-per-page list view
+- **Public exports upgraded** — From a single flat sheet to the same beautified report as authenticated backups (metadata sheet, overview sheet, per-category sheets, star ratings, clickable links)
+- **State isolation** — Public checkpoints and baselines are stored under a `public:` prefix; a public profile hides entries marked private, so sharing a baseline with authenticated data would make incremental draw the wrong conclusion
+- **Behavior change** — Public mode no longer writes a separate JSON file per category; the combined `douban_backup_<timestamp>.json` already holds everything
 
 ### v1.55 — Incremental Backup
 
