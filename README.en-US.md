@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.53](https://img.shields.io/badge/version-1.53-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.54](https://img.shields.io/badge/version-1.54-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.53 adds configurable request delays: use `--delay SECONDS` to pace crawling and reduce rate-limit risk.
+> v1.54 removes the defunct account-password login, making Cookie import the only authentication method, and gives single-category backups timestamped filenames so they no longer overwrite earlier backups.
 
 ---
 
@@ -35,9 +35,10 @@ A personal data backup tool for Douban — One-click export of all your **movies
 
 | Method | Description | Recommended Scenarios |
 |--------|-------------|----------------------|
-| Cookie Import | Copy and paste Cookie from browser | **Preferred**, secure and convenient, bypasses CAPTCHA |
-| Account Password | Interactive input, password not echoed | Fallback when Cookie expires |
+| Cookie Import | Copy and paste Cookie from browser | Backing up your own data — **the only supported login method** |
 | Public Crawling | `crawl_public.py` to crawl public data | Crawling others' public profiles |
+
+> Douban's login page is protected by a slider CAPTCHA, so automated account-password login is not possible; Cookie import is the only supported method. When a Cookie expires, just run `python import_cookies.py` again.
 
 ### Anti-Crawling Strategies
 
@@ -101,9 +102,13 @@ Backup files are saved in the `data/backup/` directory:
 
 ```
 data/backup/
-├── douban_backup_20260331_143000.xlsx   # Beautiful Excel report
-└── douban_backup_20260331_143000.json   # Structured raw data
+├── douban_backup_20260331_143000.xlsx   # Beautiful Excel report (full backup)
+├── douban_backup_20260331_143000.json   # Structured raw data (full backup)
+├── douban_movies_20260331_150000.xlsx   # Single-category backup (python main.py movies)
+└── douban_movies_20260331_150000.json
 ```
+
+Every export is timestamped, so repeated backups never overwrite each other; the JSON and Excel from one run share a single timestamp so they are easy to pair up.
 
 ### 5. Crawl Public Data (No Login Required)
 
@@ -124,7 +129,7 @@ python crawl_public.py
 
 ```
 ├── main.py              # Main program entry point, CLI command dispatch
-├── auth.py              # Authentication module (Cookie / Account Password)
+├── auth.py              # Authentication module (Cookie-based login)
 ├── import_cookies.py    # Browser Cookie import tool
 ├── config.py            # Global configuration (timeout, delay, backup targets)
 ├── base.py              # Spider base class (request, retry, pagination)
@@ -144,6 +149,13 @@ python crawl_public.py
 ---
 
 ## Changelog
+
+### v1.54 — Focused Authentication & Backup File Protection
+
+- **Removed the defunct account-password login** — Douban's login page is protected by a slider CAPTCHA, so the old form-based account-password login could no longer succeed and only misled users; that path is now deleted, Cookie import is the sole authentication method, and a failed login prints clear import instructions
+- **Resilient Cookie loading** — A missing, corrupt, or empty Cookie file now produces a clear message instead of raising an exception and aborting the program
+- **Single-category backups no longer overwrite history** — Commands like `python main.py movies` previously wrote to a fixed `movies.json`/`movies.xlsx`, overwriting the previous run; they now use `douban_movies_<timestamp>` naming, consistent with full backups
+- **One timestamp per backup run** — JSON and Excel no longer read the clock separately, so their filenames can't disagree across a second boundary
 
 ### v1.53 — Configurable Request Delay
 

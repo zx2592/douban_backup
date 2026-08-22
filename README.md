@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.53](https://img.shields.io/badge/version-1.53-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.54](https://img.shields.io/badge/version-1.54-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.53 新增可配置请求间隔：使用 `--delay 秒数` 调整抓取节奏，降低访问过快被限制的风险。
+> v1.54 移除已失效的账号密码登录，Cookie 导入成为唯一认证方式；单分类备份改用带时间戳的文件名，不再覆盖历史备份。
 
 ---
 
@@ -35,9 +35,10 @@
 
 | 方式 | 说明 | 推荐场景 |
 |------|------|----------|
-| Cookie 导入 | 从浏览器复制 Cookie 粘贴导入 | **首选**，安全便捷，规避验证码 |
-| 账号密码 | 交互式输入，密码不回显 | Cookie 失效时的备选 |
+| Cookie 导入 | 从浏览器复制 Cookie 粘贴导入 | 备份自己的数据，**唯一支持的登录方式** |
 | 免登录 | `crawl_public.py` 爬取公开数据 | 爬取他人公开主页 |
+
+> 豆瓣登录页受滑块验证保护，无法用账号密码自动登录，因此本工具只支持 Cookie 导入。Cookie 失效时重新运行 `python import_cookies.py` 即可。
 
 ### 防反爬策略
 
@@ -114,17 +115,21 @@ python main.py --delay 5
 
 ```
 data/backup/
-├── douban_backup_20260331_143000.xlsx   # 精美 Excel 报告
-├── douban_backup_20260331_143000.json   # 结构化原始数据与备份元数据
+├── douban_backup_20260331_143000.xlsx   # 全量备份的精美 Excel 报告
+├── douban_backup_20260331_143000.json   # 全量备份的结构化数据与元数据
+├── douban_movies_20260331_150000.xlsx   # 单分类备份（python main.py movies）
+├── douban_movies_20260331_150000.json
 └── backup_state_<账号摘要>.json          # 未完成任务的断点状态
 ```
+
+所有导出文件名都带时间戳，历次备份不会互相覆盖；同一次备份的 JSON 和 Excel 共用一个时间戳，方便配对。
 
 JSON 文件使用统一的顶层结构：
 
 ```json
 {
   "metadata": {
-    "app_version": "1.53",
+    "app_version": "1.54",
     "backup_mode": "authenticated",
     "generated_at": "2026-08-06T20:00:00-07:00",
     "selected_categories": ["movies", "books"]
@@ -160,7 +165,7 @@ python main.py --public <用户ID> --delay 5
 
 ```
 ├── main.py              # 主程序入口，CLI 命令分发
-├── auth.py              # 认证模块（Cookie / 账号密码登录）
+├── auth.py              # 认证模块（Cookie 登录）
 ├── import_cookies.py    # 浏览器 Cookie 导入工具
 ├── config.py            # 全局配置（超时、延迟、备份项目）
 ├── base.py              # 爬虫基类（请求、重试、分页）
@@ -186,6 +191,13 @@ python main.py --public <用户ID> --delay 5
 ---
 
 ## 更新日志
+
+### v1.54 — 认证收敛与备份文件保护
+
+- **移除失效的账号密码登录** — 豆瓣登录页受滑块验证保护，原有的表单式账号密码登录早已无法成功，保留只会误导用户；现已删除该路径，Cookie 导入成为唯一认证方式，登录失败时直接给出导入指引
+- **Cookie 读取容错** — Cookie 文件缺失、损坏或内容为空时给出明确提示，不再抛出异常中断程序
+- **单分类备份不再覆盖历史文件** — `python main.py movies` 等命令此前固定写入 `movies.json`/`movies.xlsx`，每次运行覆盖上一次；现改为 `douban_movies_<时间戳>` 命名，与全量备份行为一致
+- **同一次备份共用时间戳** — JSON 与 Excel 不再各自取当前时间，避免跨秒时两个文件名对不上
 
 ### v1.53 — 可配置请求间隔
 

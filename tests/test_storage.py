@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -207,6 +208,58 @@ class CategorySheetTests(unittest.TestCase):
 
         self.assertEqual(worksheet["A2"].value, "序号")
         self.assertEqual(worksheet.freeze_panes, "A3")
+
+
+class CategoryFilenameTests(unittest.TestCase):
+    """单分类备份必须带时间戳，历次备份不能互相覆盖。"""
+
+    def test_category_files_are_timestamped(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_storage = storage.DataStorage(backup_dir=tmpdir)
+
+            json_path = data_storage.save_category_json(
+                {"collect": []}, "movies", timestamp="20260322_101500"
+            )
+            excel_path = data_storage.save_category_excel(
+                {"movies": {"collect": []}}, "movies", timestamp="20260322_101500"
+            )
+
+        self.assertTrue(json_path.endswith("douban_movies_20260322_101500.json"))
+        self.assertTrue(excel_path.endswith("douban_movies_20260322_101500.xlsx"))
+
+    def test_repeated_category_backups_do_not_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_storage = storage.DataStorage(backup_dir=tmpdir)
+
+            for stamp in ("20260322_101500", "20260322_101501"):
+                data_storage.save_category_json(
+                    {"collect": []}, "books", timestamp=stamp
+                )
+                data_storage.save_category_excel(
+                    {"books": {"collect": []}}, "books", timestamp=stamp
+                )
+
+            written = sorted(os.listdir(tmpdir))
+
+        self.assertEqual(
+            written,
+            [
+                "douban_books_20260322_101500.json",
+                "douban_books_20260322_101500.xlsx",
+                "douban_books_20260322_101501.json",
+                "douban_books_20260322_101501.xlsx",
+            ],
+        )
+
+    def test_full_backup_files_are_timestamped(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_storage = storage.DataStorage(backup_dir=tmpdir)
+
+            json_path = data_storage.save_all_json({}, timestamp="20260322_101500")
+            excel_path = data_storage.save_all_excel({}, timestamp="20260322_101500")
+
+        self.assertTrue(json_path.endswith("douban_backup_20260322_101500.json"))
+        self.assertTrue(excel_path.endswith("douban_backup_20260322_101500.xlsx"))
 
 
 if __name__ == "__main__":

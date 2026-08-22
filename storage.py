@@ -135,6 +135,11 @@ class DataStorage:
     def set_metadata(self, metadata):
         self.metadata = metadata or {}
 
+    @staticmethod
+    def new_timestamp():
+        """同一次备份的 JSON 和 Excel 共用一个时间戳，避免跨秒时文件名不一致。"""
+        return datetime.now().strftime('%Y%m%d_%H%M%S')
+
     def _build_payload(self, data, metadata=None):
         return {
             "metadata": merge_metadata(self.metadata, metadata),
@@ -151,9 +156,14 @@ class DataStorage:
         print(f"  已保存: {filepath}")
         return filepath
 
-    def save_all_json(self, all_data):
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return self.save_json(all_data, f"douban_backup_{timestamp}")
+    def save_all_json(self, all_data, timestamp=None):
+        return self.save_json(all_data, f"douban_backup_{timestamp or self.new_timestamp()}")
+
+    def save_category_json(self, data, category, timestamp=None):
+        """按分类保存，文件名带时间戳，避免覆盖历史备份。"""
+        return self.save_json(
+            data, f"douban_{category}_{timestamp or self.new_timestamp()}"
+        )
 
     # ───────── Excel ─────────
 
@@ -181,9 +191,14 @@ class DataStorage:
         print(f"  已保存: {filepath}")
         return filepath
 
-    def save_all_excel(self, all_data):
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return self.save_excel(all_data, f"douban_backup_{timestamp}")
+    def save_all_excel(self, all_data, timestamp=None):
+        return self.save_excel(all_data, f"douban_backup_{timestamp or self.new_timestamp()}")
+
+    def save_category_excel(self, data, category, timestamp=None):
+        """按分类保存，文件名带时间戳，避免覆盖历史备份。"""
+        return self.save_excel(
+            data, f"douban_{category}_{timestamp or self.new_timestamp()}"
+        )
 
     # ───────── 总览 Sheet ─────────
 

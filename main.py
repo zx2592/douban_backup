@@ -2,7 +2,6 @@
 豆瓣数据备份工具主程序
 """
 import argparse
-import getpass
 import json
 import os
 import sys
@@ -23,6 +22,13 @@ from storage import DataStorage
 
 
 VALID_CATEGORIES = ["movies", "books", "music", "games"]
+
+# 豆瓣登录页受滑块验证保护，无法用账号密码自动登录，Cookie 导入是唯一认证方式。
+HINT_IMPORT_COOKIES = (
+    "[ERROR] 没有可用的登录 Cookie。\n"
+    "        请先在浏览器登录豆瓣，然后运行 python import_cookies.py 导入 Cookie。"
+)
+
 CATEGORY_LABELS = {
     "movies": ("电影", "部"),
     "books": ("书籍", "本"),
@@ -137,8 +143,9 @@ class DoubanBackup:
             all_data = self._backup_all()
 
             print("\n保存数据...")
-            self.storage.save_all_json(all_data)
-            self.storage.save_all_excel(all_data)
+            timestamp = self.storage.new_timestamp()
+            self.storage.save_all_json(all_data, timestamp=timestamp)
+            self.storage.save_all_excel(all_data, timestamp=timestamp)
 
             if self.backup_incomplete or (
                 self.state_store and self.state_store.has_incomplete_collections()
@@ -173,7 +180,7 @@ class DoubanBackup:
         if not self.auth.login_with_cookies():
             report["error_code"] = "login_expired"
             report["message"] = "Cookie 无效或已过期，请重新导入。"
-            print(f"[ERROR] {report['message']}")
+            print(HINT_IMPORT_COOKIES)
             return report
 
         self.session = self.auth.get_session()
@@ -232,19 +239,13 @@ class DoubanBackup:
         return {category: urls[category] for category in self.selected_items}
 
     def _login(self):
-        """登录豆瓣"""
+        """使用浏览器导入的 Cookie 登录豆瓣。"""
         print("\n[1/2] 登录豆瓣账号")
 
         if self.auth.login_with_cookies():
             return self._finalize_login()
 
-        email = input("请输入豆瓣邮箱: ").strip()
-        password = getpass.getpass("请输入密码（输入时不显示）: ")
-
-        if self.auth.login(email, password):
-            return self._finalize_login()
-
-        print("登录失败!")
+        print(HINT_IMPORT_COOKIES)
         return False
 
     def _finalize_login(self):
@@ -361,8 +362,9 @@ class DoubanBackup:
         category_data = getattr(crawler, crawl_method)()
         data = {category: category_data}
 
-        self.storage.save_json(category_data, category)
-        self.storage.save_excel(data, category)
+        timestamp = self.storage.new_timestamp()
+        self.storage.save_category_json(category_data, category, timestamp=timestamp)
+        self.storage.save_category_excel(data, category, timestamp=timestamp)
         if crawler.incomplete or (
             self.state_store and self.state_store.has_incomplete_collections()
         ):
