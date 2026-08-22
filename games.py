@@ -12,12 +12,21 @@ class GameCrawler(BaseCrawler):
         'do': '在玩'
     }
 
-    def __init__(self, session, state_store=None, request_delay=None):
+    def __init__(
+        self,
+        session,
+        state_store=None,
+        request_delay=None,
+        baseline=None,
+        incremental=False,
+    ):
         super().__init__(
             session,
             category_key='games',
             state_store=state_store,
             request_delay=request_delay,
+            baseline=baseline,
+            incremental=incremental,
         )
         self.user_id = None
 

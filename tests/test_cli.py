@@ -58,6 +58,7 @@ class CliDispatchTests(unittest.TestCase):
             output_dir=None,
             checkpoint_enabled=True,
             request_delay=4.5,
+            incremental=False,
         )
         instance.run.assert_called_once()
 

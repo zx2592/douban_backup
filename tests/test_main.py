@@ -211,5 +211,55 @@ class BackupLoginTests(unittest.TestCase):
         self.assertEqual(report["checks"][1]["status"], "error")
 
 
+class BaselineUpdateTests(unittest.TestCase):
+    """基线只应在完整跑完的备份之后更新。"""
+
+    def _backup(self, incomplete):
+        backup = DoubanBackup(selected_items=["movies"])
+        backup.storage = Mock()
+        backup.storage.backup_dir = "/tmp/backup"
+        backup.storage.new_timestamp.return_value = "20260322_101500"
+        backup.baseline = Mock()
+        backup.backup_incomplete = incomplete
+        backup.state_store = None
+        return backup
+
+    def _run(self, backup):
+        with patch.object(
+            DoubanBackup, "_login", autospec=True, return_value=True
+        ), patch.object(
+            DoubanBackup,
+            "_backup_all",
+            autospec=True,
+            return_value={"movies": {"collect": [{"douban_id": "1"}]}},
+        ):
+            return backup.run()
+
+    def test_complete_backup_updates_baseline(self):
+        backup = self._backup(incomplete=False)
+
+        self.assertTrue(self._run(backup))
+
+        backup.baseline.update.assert_called_once_with(
+            "movies", "collect", [{"douban_id": "1"}]
+        )
+        backup.baseline.save.assert_called_once()
+
+    def test_incomplete_backup_leaves_baseline_untouched(self):
+        """部分数据只是最新条目的前缀，写进基线会让下次增量跳过中间那段。"""
+        backup = self._backup(incomplete=True)
+
+        self.assertFalse(self._run(backup))
+
+        backup.baseline.update.assert_not_called()
+        backup.baseline.save.assert_not_called()
+
+    def test_update_baseline_is_a_noop_without_baseline(self):
+        backup = self._backup(incomplete=False)
+        backup.baseline = None
+
+        self.assertIsNone(backup._update_baseline({"movies": {"collect": []}}))
+
+
 if __name__ == "__main__":
     unittest.main()

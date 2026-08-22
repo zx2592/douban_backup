@@ -16,6 +16,7 @@ from config import BACKUP_ITEMS, DATA_DIR, REQUEST_TIMEOUT
 from crawl_public import run_public_backup
 from diagnostics import classify_response
 from games import GameCrawler
+from incremental import Baseline
 from movies import MovieCrawler
 from music import MusicCrawler
 from storage import DataStorage
@@ -94,6 +95,11 @@ def parse_args(argv=None):
         help="每次请求之间等待的秒数；默认登录备份为 2 秒，公开备份为 1 秒",
     )
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="增量备份：只抓取上次备份之后新增或改动的条目（不会同步已删除的收藏）",
+    )
     return parser.parse_args(argv)
 
 
@@ -104,6 +110,7 @@ class DoubanBackup:
         output_dir=None,
         checkpoint_enabled=True,
         request_delay=None,
+        incremental=False,
     ):
         self.auth = DoubanAuth()
         self.selected_items = list(selected_items or VALID_CATEGORIES)
@@ -111,7 +118,9 @@ class DoubanBackup:
         self.storage = DataStorage(backup_dir=output_dir)
         self.checkpoint_enabled = checkpoint_enabled
         self.request_delay = request_delay
+        self.incremental = incremental
         self.state_store = None
+        self.baseline = None
         self.session = None
         self.user_id = None
         self.user_name = None
@@ -157,12 +166,29 @@ class DoubanBackup:
             if self.state_store:
                 self.state_store.clear()
 
+            self._update_baseline(all_data)
+
             print("\n备份完成!")
             self._print_summary(all_data)
             return True
         except KeyboardInterrupt:
             print("\n[WARN] 已中断，断点状态已保存，下次运行会从上次进度继续。")
             return False
+
+    def _update_baseline(self, data):
+        """把本次备份结果写回基线，供下次增量比对。
+
+        只有完整跑完的备份才配更新基线。中断或抓取失败时 data 只是最新
+        条目的一个前缀，把它当成基线会让下次增量在这个前缀的边界就停下，
+        中间那段再也抓不回来。
+        """
+        if self.baseline is None:
+            return None
+
+        for category, collections in data.items():
+            for collection, items in collections.items():
+                self.baseline.update(category, collection, items)
+        return self.baseline.save()
 
     def verify(self):
         """验证 Cookie、用户信息和分类页面可访问性。"""
@@ -258,6 +284,14 @@ class DoubanBackup:
                     self.storage.backup_dir,
                     user_id=self.user_id,
                 )
+            # 基线始终加载：非增量运行结束后也要刷新它，
+            # 这样之后任何一次 --incremental 都有可用的比对起点。
+            self.baseline = Baseline(
+                self.storage.backup_dir,
+                user_id=self.user_id,
+            )
+            if self.incremental and self.baseline.is_empty():
+                print("[增量] 尚无基线数据，本次将完整备份并建立基线。")
             return True
 
         self.session = None
@@ -288,6 +322,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             movie_crawler.set_user_id(self.user_id)
             all_data["movies"] = movie_crawler.crawl_all_movies()
@@ -299,6 +335,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             book_crawler.set_user_id(self.user_id)
             all_data["books"] = book_crawler.crawl_all_books()
@@ -310,6 +348,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             music_crawler.set_user_id(self.user_id)
             all_data["music"] = music_crawler.crawl_all_music()
@@ -321,6 +361,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             game_crawler.set_user_id(self.user_id)
             all_data["games"] = game_crawler.crawl_all_games()
@@ -357,6 +399,8 @@ class DoubanBackup:
             self.session,
             state_store=self.state_store,
             request_delay=self.request_delay,
+            baseline=self.baseline,
+            incremental=self.incremental,
         )
         crawler.set_user_id(self.user_id)
         category_data = getattr(crawler, crawl_method)()
@@ -373,6 +417,7 @@ class DoubanBackup:
             return False
         if self.state_store:
             self.state_store.clear()
+        self._update_baseline(data)
         self._print_summary(data)
         return True
 
@@ -392,6 +437,11 @@ def main(argv=None):
     selected_items = resolve_selected_items(args.only, args.skip)
 
     if args.public:
+        if args.incremental:
+            # 公开模式走的是 crawl_public.py 里另一套抓取流程，没有断点和
+            # 重试，增量所依赖的基线在那里无从维护。与其悄悄忽略这个参数，
+            # 不如明确告知。
+            print("[WARN] 公开数据模式暂不支持 --incremental，本次将完整备份。")
         return run_public_backup(
             args.public,
             categories=selected_items,
@@ -404,6 +454,7 @@ def main(argv=None):
         output_dir=args.output,
         checkpoint_enabled=not args.no_resume,
         request_delay=args.delay,
+        incremental=args.incremental,
     )
 
     if args.command == "verify":

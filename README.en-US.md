@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.54](https://img.shields.io/badge/version-1.54-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.55](https://img.shields.io/badge/version-1.55-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.54 removes the defunct account-password login, making Cookie import the only authentication method, and gives single-category backups timestamped filenames so they no longer overwrite earlier backups.
+> v1.55 adds incremental backup: `python main.py --incremental` fetches only entries added or edited since the last backup, cutting dozens of requests down to one or two for large accounts.
 
 ---
 
@@ -42,6 +42,7 @@ A personal data backup tool for Douban — One-click export of all your **movies
 
 ### Anti-Crawling Strategies
 
+- **Incremental backup** — `--incremental` fetches only new and edited entries, cutting request volume dramatically; the single most effective way to avoid rate limits
 - **Configurable request delay** — use `--delay SECONDS` to adjust the wait between requests and reduce rate-limit risk (default: 2 seconds for authenticated backups, 1 second for public backups)
 - Automatic retry on failure (up to 3 times)
 - 30-second request timeout protection
@@ -92,6 +93,9 @@ python main.py books
 # Adjust the delay between requests (in seconds) to reduce rate-limit risk
 python main.py --delay 5
 
+# Incremental backup: fetch only entries added or edited since the last backup
+python main.py --incremental
+
 # View historical backups
 python main.py list
 ```
@@ -123,6 +127,27 @@ python crawl_public.py <UserID> --delay 5
 python crawl_public.py
 ```
 
+### 6. Incremental Backup
+
+For large collections, re-crawling everything each time is slow and invites rate limiting. Incremental mode exploits the fact that Douban collection pages are ordered newest-marked-first: it walks from page one and stops as soon as it meets an entry that is already in the last backup and unchanged.
+
+```bash
+# First run: full backup, establishes the baseline
+python main.py --incremental
+
+# Every run after that: usually one or two requests
+python main.py --incremental
+```
+
+The baseline lives in `data/backup/backup_baseline_<account-digest>.json`, isolated per Douban account. **Every backup that completes refreshes the baseline**, with or without `--incremental`, so you can switch between the two modes freely. The exported Excel and JSON always contain the merged full dataset, not just the new entries.
+
+Things worth knowing:
+
+- **Edits are captured** — Entries are compared by a fingerprint of title, rating, review, mark date, and tags, not just by ID. Editing a rating or review pushes the entry back to the top, and the tool re-fetches it and overwrites the old record
+- **Deletions are not synced** — An entry you un-marked on Douban no longer appears on the page, but it stays in the baseline. Run a full backup (without `--incremental`) when you want deletions reflected
+- **Interruptions don't poison the baseline** — The baseline is left untouched when a backup doesn't finish, so the next incremental run won't stop at the edge of partial data
+- **Public mode is not supported yet** — `--public` uses a separate crawling path; passing `--incremental` prints a notice and falls back to a full backup
+
 ---
 
 ## Project Structure
@@ -139,6 +164,7 @@ python crawl_public.py
 ├── games.py             # Game data scraping
 ├── crawl_public.py      # Public data scraping without login (standalone script)
 ├── storage.py           # Data storage (JSON + beautified Excel export)
+├── incremental.py       # Incremental backup fingerprinting and baseline store
 ├── requirements.txt     # Python dependencies
 └── data/
     ├── cookies.json     # Login credentials (auto-generated, permission 600)
@@ -149,6 +175,14 @@ python crawl_public.py
 ---
 
 ## Changelog
+
+### v1.55 — Incremental Backup
+
+- **Fetch only what changed** — New `--incremental` flag exploits the newest-first ordering of collection pages and stops paging as soon as it meets an unchanged entry from the last backup; an unchanged collection costs a single request, making this the most effective way to reduce rate-limit risk
+- **Edits are detected** — Comparison uses a fingerprint of title, rating, review, date, and tags rather than the entry ID, so an edited rating or review is re-fetched and overwrites the old record instead of being skipped as "already seen"
+- **Exports stay complete** — Newly fetched entries are merged with the baseline before export, so Excel and JSON always hold the full dataset
+- **Baseline is separate from the checkpoint** — Isolated per account, written atomically, and refreshed only after a backup completes; an interrupted run never poisons it, and an app version bump does not invalidate it
+- **Known limitations** — Incremental mode cannot detect deleted collection entries (run a full backup to reflect deletions), and public-data mode does not support it yet
 
 ### v1.54 — Focused Authentication & Backup File Protection
 

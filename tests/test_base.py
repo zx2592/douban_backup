@@ -125,3 +125,135 @@ class CrawlerRequestDelayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PagedCrawler(BaseCrawler):
+    """按预设页序返回条目的爬虫，用于验证增量模式下的翻页与早停。"""
+
+    def __init__(self, session, pages, state_store=None, baseline=None, incremental=False):
+        super().__init__(
+            session,
+            category_key="movies",
+            state_store=state_store,
+            baseline=baseline,
+            incremental=incremental,
+        )
+        self.pages = list(pages)
+        self.page_index = 0
+        self.requested_urls = []
+
+    def _make_request(self, url):
+        self.requested_urls.append(url)
+        return DummyResponse(url=url)
+
+    def _parse_items(self, response, collection_type=None):
+        if self.page_index >= len(self.pages):
+            return []
+        items = self.pages[self.page_index]
+        self.page_index += 1
+        return list(items)
+
+    def _get_pagination(self, response):
+        return (
+            f"https://example.test/page{self.page_index}"
+            if self.page_index < len(self.pages)
+            else None
+        )
+
+    def _is_last_page(self, response, items):
+        return self.page_index >= len(self.pages)
+
+
+def _movie(douban_id, rating="5"):
+    return {
+        "douban_id": douban_id,
+        "title": f"片{douban_id}",
+        "rating": rating,
+        "comment": "",
+        "date": "2026-01-01",
+    }
+
+
+class IncrementalCrawlTests(unittest.TestCase):
+    def _baseline(self, tmpdir, items):
+        from incremental import Baseline
+
+        baseline = Baseline(tmpdir, user_id="demo")
+        baseline.update("movies", "collect", items)
+        return baseline
+
+    def test_without_baseline_crawls_every_page(self):
+        pages = [[_movie("5"), _movie("4")], [_movie("3")], [_movie("2"), _movie("1")]]
+        crawler = PagedCrawler(Mock(), pages)
+
+        result = crawler.crawl_collection("https://example.test/page0", "collect")
+
+        self.assertEqual(5, len(result))
+        self.assertEqual(3, len(crawler.requested_urls))
+        self.assertFalse(crawler.stopped_at_baseline)
+
+    def test_stops_paging_once_baseline_is_reached(self):
+        old = [_movie("3"), _movie("2"), _movie("1")]
+        pages = [[_movie("5"), _movie("4")], [_movie("3"), _movie("2")], [_movie("1")]]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            crawler = PagedCrawler(
+                Mock(), pages, baseline=self._baseline(tmpdir, old), incremental=True
+            )
+            result = crawler.crawl_collection("https://example.test/page0", "collect")
+
+        # 第二页一开头就撞上基线，第三页不该再请求。
+        self.assertEqual(2, len(crawler.requested_urls))
+        self.assertTrue(crawler.stopped_at_baseline)
+        self.assertFalse(crawler.incomplete)
+        # 合并后仍是完整的 5 条，顺序为新条目在前。
+        self.assertEqual(
+            ["5", "4", "3", "2", "1"], [item["douban_id"] for item in result]
+        )
+
+    def test_reaching_baseline_is_not_treated_as_incomplete(self):
+        """撞上基线是正常结束，不能被当成抓取中断而保留断点。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = BackupState(tmpdir, user_id="demo")
+            crawler = PagedCrawler(
+                Mock(),
+                [[_movie("2"), _movie("1")]],
+                state_store=state,
+                baseline=self._baseline(tmpdir, [_movie("1")]),
+                incremental=True,
+            )
+            crawler.crawl_collection("https://example.test/page0", "collect")
+
+            self.assertFalse(crawler.incomplete)
+            self.assertFalse(state.has_incomplete_collections())
+
+    def test_edited_item_is_refetched_and_replaces_baseline_copy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            baseline = self._baseline(tmpdir, [_movie("2", rating="3"), _movie("1")])
+            crawler = PagedCrawler(
+                Mock(),
+                [[_movie("2", rating="5"), _movie("1")]],
+                baseline=baseline,
+                incremental=True,
+            )
+            result = crawler.crawl_collection("https://example.test/page0", "collect")
+
+        self.assertEqual(2, len(result))
+        self.assertEqual("2", result[0]["douban_id"])
+        self.assertEqual("5", result[0]["rating"])
+
+    def test_nothing_new_returns_baseline_unchanged(self):
+        old = [_movie("2"), _movie("1")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            crawler = PagedCrawler(
+                Mock(), [list(old)], baseline=self._baseline(tmpdir, old), incremental=True
+            )
+            result = crawler.crawl_collection("https://example.test/page0", "collect")
+
+        self.assertEqual(old, result)
+        self.assertEqual(0, crawler.fetched_count)
+
+    def test_incremental_without_baseline_object_degrades_to_full_crawl(self):
+        crawler = PagedCrawler(Mock(), [[_movie("1")]], baseline=None, incremental=True)
+
+        self.assertFalse(crawler.incremental)

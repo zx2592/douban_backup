@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.54](https://img.shields.io/badge/version-1.54-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.55](https://img.shields.io/badge/version-1.55-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.54 移除已失效的账号密码登录，Cookie 导入成为唯一认证方式；单分类备份改用带时间戳的文件名，不再覆盖历史备份。
+> v1.55 新增增量备份：`python main.py --incremental` 只抓取上次备份之后新增和改动的条目，收藏多的账号可把几十次请求降到一两次。
 
 ---
 
@@ -42,6 +42,7 @@
 
 ### 防反爬策略
 
+- **增量备份** — `--incremental` 只抓新增和改动的条目，请求量大幅下降，是规避访问限制最有效的手段
 - **可配置请求间隔** — 使用 `--delay 秒数` 调整每次请求之间的等待时间，降低访问过快被限制的风险（登录备份默认 2 秒，公开备份默认 1 秒）
 - 失败自动重试（最多 3 次）
 - 30 秒请求超时保护
@@ -107,6 +108,9 @@ python main.py --skip music,games
 
 # 调整每次请求之间的等待时间（秒），降低访问过快被限制的风险
 python main.py --delay 5
+
+# 增量备份：只抓取上次备份之后新增和改动的条目
+python main.py --incremental
 ```
 
 ### 4. 查看结果
@@ -129,7 +133,7 @@ JSON 文件使用统一的顶层结构：
 ```json
 {
   "metadata": {
-    "app_version": "1.54",
+    "app_version": "1.55",
     "backup_mode": "authenticated",
     "generated_at": "2026-08-06T20:00:00-07:00",
     "selected_categories": ["movies", "books"]
@@ -159,6 +163,27 @@ python main.py --public <用户ID> --only movies,books --output D:\douban-backup
 python main.py --public <用户ID> --delay 5
 ```
 
+### 6. 增量备份
+
+收藏较多时，每次全量重爬既慢又容易触发访问限制。增量模式利用豆瓣收藏页按标记时间倒序排列的特点，从第一页往后抓，一旦遇到上次备份中已有且没有改动的条目就停止翻页：
+
+```bash
+# 首次运行：完整备份并建立基线
+python main.py --incremental
+
+# 之后每次运行：通常只需一两次请求
+python main.py --incremental
+```
+
+基线保存在 `data/backup/backup_baseline_<账号摘要>.json`，按豆瓣账号隔离。**每次完整跑完的备份都会刷新基线**（无论是否加 `--incremental`），所以随时可以切换两种模式。导出的 Excel 和 JSON 始终是合并后的全量数据，不是只有新增部分。
+
+几点需要知道：
+
+- **改动会被正确捕获** — 判断依据是标题、评分、评语、标记日期、标签组成的指纹，而不只是条目 ID。修改评分或评语会让条目重新排到最前面，工具会重新抓取并覆盖旧记录
+- **删除不会同步** — 你在豆瓣上取消收藏的条目不会再出现在页面上，但它仍留在基线里。需要清理已删除的条目时，运行一次不加 `--incremental` 的完整备份
+- **中断不会污染基线** — 备份未完整结束时基线保持不变，避免下次增量在残缺数据的边界就停下
+- **公开数据模式暂不支持** — `--public` 走的是另一套抓取流程，加 `--incremental` 会给出提示并退回完整备份
+
 ---
 
 ## 项目结构
@@ -175,6 +200,7 @@ python main.py --public <用户ID> --delay 5
 ├── games.py             # 游戏数据爬取
 ├── crawl_public.py      # 免登录公开数据爬取（独立脚本）
 ├── storage.py           # 数据存储（JSON + 美化 Excel 导出）
+├── incremental.py       # 增量备份的指纹比对与基线存储
 ├── backup_state.py      # 账号隔离的断点恢复
 ├── backup_metadata.py   # 备份版本、模式和生成时间元数据
 ├── diagnostics.py       # 登录失效、风控和页面异常诊断
@@ -185,12 +211,20 @@ python main.py --public <用户ID> --delay 5
 └── data/
     ├── cookies.json     # 登录凭据（自动生成，权限 600）
     ├── user_info.json   # 用户信息缓存
-    └── backup/          # 导出文件输出目录
+    └── backup/          # 导出文件、断点和增量基线
 ```
 
 ---
 
 ## 更新日志
+
+### v1.55 — 增量备份
+
+- **只抓新增和改动** — 新增 `--incremental`，利用收藏页按标记时间倒序的特点，遇到上次备份中已有且未改动的条目即停止翻页；无变化时整个收藏夹只需 1 次请求，是降低访问限制风险最有效的手段
+- **改动能被识别** — 比对的是标题、评分、评语、日期、标签构成的指纹而非条目 ID，用户修改评分或评语后条目会被重新抓取并覆盖旧记录，不会因为"ID 眼熟"而漏掉
+- **导出仍是全量** — 抓到的新条目与基线合并后再导出，Excel 和 JSON 始终包含完整数据
+- **基线独立于断点** — 基线按账号隔离、原子写入，只在备份完整跑完后刷新；中断的备份不会污染基线，应用版本升级也不会让基线失效
+- **已知限制** — 增量模式无法感知已删除的收藏，需要清理时运行一次完整备份；公开数据模式暂不支持增量，会给出提示并退回完整备份
 
 ### v1.54 — 认证收敛与备份文件保护
 
