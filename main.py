@@ -13,6 +13,7 @@ from backup_metadata import build_metadata
 from backup_state import BackupState
 from books import BookCrawler
 from cli import exit_code
+from covers import CoverDownloader
 from config import BACKUP_ITEMS, DATA_DIR, REQUEST_TIMEOUT
 from crawl_public import run_public_backup
 from diagnostics import classify_response
@@ -97,6 +98,11 @@ def parse_args(argv=None):
     )
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
     parser.add_argument(
+        "--download-covers",
+        action="store_true",
+        help="把封面图片下载到导出目录的 covers/ 子目录，让备份不依赖豆瓣图床",
+    )
+    parser.add_argument(
         "--incremental",
         action="store_true",
         help="增量备份：只抓取上次备份之后新增或改动的条目（不会同步已删除的收藏）",
@@ -112,6 +118,7 @@ class DoubanBackup:
         checkpoint_enabled=True,
         request_delay=None,
         incremental=False,
+        download_covers=False,
     ):
         self.auth = DoubanAuth()
         self.selected_items = list(selected_items or VALID_CATEGORIES)
@@ -120,6 +127,7 @@ class DoubanBackup:
         self.checkpoint_enabled = checkpoint_enabled
         self.request_delay = request_delay
         self.incremental = incremental
+        self.download_covers = download_covers
         self.state_store = None
         self.baseline = None
         self.session = None
@@ -151,6 +159,7 @@ class DoubanBackup:
         try:
             print("\n开始备份数据...")
             all_data = self._backup_all()
+            self._download_covers(all_data)
 
             print("\n保存数据...")
             timestamp = self.storage.new_timestamp()
@@ -175,6 +184,15 @@ class DoubanBackup:
         except KeyboardInterrupt:
             print("\n[WARN] 已中断，断点状态已保存，下次运行会从上次进度继续。")
             return False
+
+    def _download_covers(self, data):
+        """把封面下载到本地。放在抓取之后、导出之前，这样条目里的
+        cover_path 能一起写进 JSON。"""
+        if not self.download_covers:
+            return None
+        print("\n下载封面...")
+        downloader = CoverDownloader(self.session, self.storage.backup_dir)
+        return downloader.download_all(data)
 
     def _update_baseline(self, data):
         """把本次备份结果写回基线，供下次增量比对。
@@ -406,6 +424,7 @@ class DoubanBackup:
         crawler.set_user_id(self.user_id)
         category_data = getattr(crawler, crawl_method)()
         data = {category: category_data}
+        self._download_covers(data)
 
         timestamp = self.storage.new_timestamp()
         self.storage.save_category_json(category_data, category, timestamp=timestamp)
@@ -445,6 +464,7 @@ def main(argv=None):
             request_delay=args.delay,
             checkpoint_enabled=not args.no_resume,
             incremental=args.incremental,
+            download_covers=args.download_covers,
         )
 
     backup = DoubanBackup(
@@ -453,6 +473,7 @@ def main(argv=None):
         checkpoint_enabled=not args.no_resume,
         request_delay=args.delay,
         incremental=args.incremental,
+        download_covers=args.download_covers,
     )
 
     if args.command == "verify":

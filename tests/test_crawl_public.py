@@ -165,6 +165,7 @@ class PublicCliTests(unittest.TestCase):
             request_delay=2.5,
             checkpoint_enabled=False,
             incremental=True,
+            download_covers=False,
         )
 
     def test_standalone_cli_defaults(self):
@@ -177,6 +178,7 @@ class PublicCliTests(unittest.TestCase):
             request_delay=None,
             checkpoint_enabled=True,
             incremental=False,
+            download_covers=False,
         )
 
     def test_blank_user_id_aborts(self):

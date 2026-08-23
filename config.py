@@ -17,6 +17,10 @@ REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 DELAY_BETWEEN_REQUESTS = 2
 
+# 封面走的是图床，比正文页面宽松得多，间隔可以短一些；
+# 否则上千张封面按 2 秒一张要跑半个多小时。
+COVER_DOWNLOAD_DELAY = 0.5
+
 # 数据存储目录始终相对于项目文件，而不是启动命令时的工作目录。
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')

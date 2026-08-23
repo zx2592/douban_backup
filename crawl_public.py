@@ -21,6 +21,7 @@ from backup_state import BackupState
 from books import BookCrawler
 from cli import exit_code
 from config import HEADERS
+from covers import CoverDownloader
 from games import GameCrawler
 from incremental import Baseline
 from movies import MovieCrawler
@@ -68,6 +69,7 @@ def run_public_backup(
     request_delay=None,
     checkpoint_enabled=True,
     incremental=False,
+    download_covers=False,
 ):
     categories = list(categories or DEFAULT_CATEGORIES)
     if request_delay is None:
@@ -122,6 +124,10 @@ def run_public_backup(
             storage.save_all_excel(all_data, timestamp=f"interrupted_{timestamp}")
         return {"ok": False, "data": all_data}
 
+    if download_covers:
+        print("\n下载封面...")
+        CoverDownloader(session, storage.backup_dir).download_all(all_data)
+
     storage.save_all_json(all_data, timestamp=timestamp)
     storage.save_all_excel(all_data, timestamp=timestamp)
 
@@ -173,6 +179,11 @@ def parse_args(argv=None):
     parser.add_argument("--output", help="导出目录，默认使用 data/backup")
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
     parser.add_argument(
+        "--download-covers",
+        action="store_true",
+        help="把封面图片下载到导出目录的 covers/ 子目录",
+    )
+    parser.add_argument(
         "--incremental",
         action="store_true",
         help="增量备份：只抓取上次备份之后新增或改动的条目（不会同步已删除的收藏）",
@@ -197,6 +208,7 @@ def main(argv=None):
         request_delay=args.delay,
         checkpoint_enabled=not args.no_resume,
         incremental=args.incremental,
+        download_covers=args.download_covers,
     )
 
 

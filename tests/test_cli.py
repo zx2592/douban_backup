@@ -48,6 +48,7 @@ class CliDispatchTests(unittest.TestCase):
             request_delay=None,
             checkpoint_enabled=True,
             incremental=False,
+            download_covers=False,
         )
 
     def test_main_passes_custom_request_delay_to_backup(self):
@@ -61,6 +62,7 @@ class CliDispatchTests(unittest.TestCase):
             checkpoint_enabled=True,
             request_delay=4.5,
             incremental=False,
+            download_covers=False,
         )
         instance.run.assert_called_once()
 
@@ -75,6 +77,7 @@ class CliDispatchTests(unittest.TestCase):
             request_delay=3.0,
             checkpoint_enabled=True,
             incremental=False,
+            download_covers=False,
         )
 
 
