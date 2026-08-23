@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.57](https://img.shields.io/badge/version-1.57-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.8](https://img.shields.io/badge/version-1.8-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.57 修复音乐和游戏的评分解析，并让命令行在失败时返回非零退出码，便于脚本化调用。
+> v1.8 新增封面本地下载、长评备份、CSV / Markdown 导出，并可通过 pip 安装为命令行工具。
 
 ---
 
@@ -20,6 +20,16 @@
 | 书籍 | 想读 / 在读 / 已读 | 标题、评分、评语、作者/出版信息、标记日期、豆瓣链接、封面 |
 | 音乐 | 想听 / 在听 / 听过 | 标题、评分、评语、艺术家、简介、豆瓣链接、封面 |
 | 游戏 | 想玩 / 在玩 / 玩过 | 标题、评分、评语、简介、标记日期、豆瓣链接、封面 |
+| 长评 | 影评 / 书评 / 乐评 / 游戏评 | 标题、评论对象、评分、发表时间、正文（摘要或全文）、豆瓣链接 |
+
+### 导出格式
+
+| 格式 | 说明 |
+|------|------|
+| JSON | 结构化原始数据与备份元数据，**始终导出** |
+| Excel | 美化报告：总览页、分类页、状态分组、星级、可点击链接（默认） |
+| CSV | 每分类一个文件，状态单独成列、评分保留数字，便于统计（`--format csv`） |
+| Markdown | 可读文档，按分类和状态分节，适合放进笔记或版本库（`--format md`） |
 
 ### Excel 导出
 
@@ -52,13 +62,25 @@
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 安装
 
-需要 Python 3.8+
+需要 Python 3.8+。两种方式任选：
 
 ```bash
+# 方式一：装成命令行工具
+pip install .
+
+# 之后可以在任何目录直接用
+douban-backup --help
+douban-backup-public <用户ID>
+douban-import-cookies
+
+# 方式二：直接从源码运行
 pip install -r requirements.txt
+python main.py
 ```
+
+安装后 Cookie 和备份存放在 `~/.douban_backup`；直接从源码运行则仍存放在项目下的 `data/`。用 `DOUBAN_BACKUP_HOME` 环境变量可以指定到别处。
 
 ### 2. 导入 Cookie（推荐）
 
@@ -111,6 +133,15 @@ python main.py --delay 5
 
 # 增量备份：只抓取上次备份之后新增和改动的条目
 python main.py --incremental
+
+# 同时导出 Excel、CSV 和 Markdown
+python main.py --format all
+
+# 把封面下载到本地，让备份不依赖豆瓣图床
+python main.py --download-covers
+
+# 抓取长评完整正文（默认只保存摘要）
+python main.py --full-reviews
 ```
 
 ### 4. 退出码
@@ -143,7 +174,7 @@ JSON 文件使用统一的顶层结构：
 ```json
 {
   "metadata": {
-    "app_version": "1.57",
+    "app_version": "1.8",
     "backup_mode": "authenticated",
     "generated_at": "2026-08-06T20:00:00-07:00",
     "selected_categories": ["movies", "books"]
@@ -200,6 +231,33 @@ python main.py --incremental
 - **中断不会污染基线** — 备份未完整结束时基线保持不变，避免下次增量在残缺数据的边界就停下
 - **公开模式同样支持** — `--public` 已合并到统一抓取栈，增量、断点和重试全部可用；其断点和基线与登录模式分开存放
 
+### 8. 封面下载
+
+只保存图片 URL 算不上完整备份——豆瓣图床对外链有 Referer 校验，条目下架或改版后旧地址也会失效。加上 `--download-covers` 会把封面存到导出目录的 `covers/<分类>/` 下，并在 JSON 里记下相对路径：
+
+```bash
+python main.py --download-covers
+```
+
+- 已下载过的文件直接跳过，中断后重跑是增量的
+- 单张失败只记一笔，不影响已经抓好的数据
+- 只下载豆瓣自家图床的地址，文件名只用条目 ID 或 URL 摘要，不用标题
+
+### 9. 长评备份
+
+长评（影评 / 书评 / 乐评 / 游戏评）默认一并备份。列表页只给出正文摘要，完整正文需要逐篇打开评论页：
+
+```bash
+# 默认：只保存摘要，代价很小
+python main.py
+
+# 抓取完整正文，每篇长评额外一次请求
+python main.py --full-reviews
+
+# 只备份长评
+python main.py reviews
+```
+
 ---
 
 ## 项目结构
@@ -216,24 +274,39 @@ python main.py --incremental
 ├── games.py             # 游戏数据爬取
 ├── crawl_public.py      # 免登录公开数据爬取（独立脚本）
 ├── storage.py           # 数据存储（JSON + 美化 Excel 导出）
-├── cli.py               # 命令行退出码翻译
+├── cli.py               # 命令行退出码与导出格式
+├── covers.py            # 封面图片本地下载
+├── reviews.py           # 长评（影评/书评/乐评）爬取
 ├── incremental.py       # 增量备份的指纹比对与基线存储
 ├── backup_state.py      # 账号隔离的断点恢复
 ├── backup_metadata.py   # 备份版本、模式和生成时间元数据
 ├── diagnostics.py       # 登录失效、风控和页面异常诊断
 ├── excel_safety.py      # Excel 公式注入保护
 ├── file_security.py     # Cookie 文件权限保护
+├── pyproject.toml       # 打包配置与控制台命令
 ├── requirements.txt     # Python 依赖
+├── .github/workflows/   # CI：多版本测试与打包检查
 ├── tests/               # 离线解析和流程测试
 └── data/
     ├── cookies.json     # 登录凭据（自动生成，权限 600）
     ├── user_info.json   # 用户信息缓存
-    └── backup/          # 导出文件、断点和增量基线
+    └── backup/          # 导出文件、封面、断点和增量基线
 ```
 
 ---
 
 ## 更新日志
+
+### v1.8 — 封面下载、长评备份、多格式导出与打包
+
+- **封面本地下载** — `--download-covers` 把封面存到 `covers/<分类>/`，备份不再依赖豆瓣图床。已下载的跳过，中断后重跑是增量的；文件名只用条目 ID 或 URL 摘要（标题来自页面，含 `..` 时会写到目录之外），且只下载豆瓣自家图床的地址
+- **长评备份** — 新增 `reviews` 分类，备份影评 / 书评 / 乐评 / 游戏评。用长评自身的 ID 作标识（同一部片子可以写多篇），正文存入 `comment` 字段以复用增量指纹和导出逻辑。默认只保存摘要，`--full-reviews` 抓取完整正文
+- **CSV 与 Markdown 导出** — `--format xlsx,csv,md` 或 `--format all`。CSV 每分类一个文件，状态单独成列、评分保留数字，用 BOM 写入以免 Windows 上的 Excel 显示乱码；Markdown 按分类和状态分节，标题中的排版字符会转义
+- **可 pip 安装** — 新增 `pyproject.toml`，提供 `douban-backup`、`douban-backup-public`、`douban-import-cookies` 三个命令
+- **安装后的数据目录** — 装进 site-packages 后再往那里写会被升级清掉、有时还是只读的，因此改用 `~/.douban_backup`；源码运行仍用项目下的 `data/`，`DOUBAN_BACKUP_HOME` 可覆盖
+- **持续集成** — GitHub Actions 在 Python 3.8/3.10/3.12 上跑测试与静态检查，并验证发行包和控制台命令可用
+- **补充 LICENSE** — README 一直挂着 MIT 徽章却没有许可证文件
+- **移除未使用的 pandas 依赖** — 四个依赖里最重的一个，代码里从未引用
 
 ### v1.57 — 评分解析与退出码修复
 

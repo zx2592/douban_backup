@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.57](https://img.shields.io/badge/version-1.57-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.8](https://img.shields.io/badge/version-1.8-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.57 fixes music and game rating parsing, and makes the CLI return a non-zero exit code on failure so it can be driven from scripts.
+> v1.8 adds local cover downloads, long-review backup, CSV / Markdown export, and pip installation as a command-line tool.
 
 ---
 
@@ -20,6 +20,16 @@ A personal data backup tool for Douban — One-click export of all your **movies
 | Books | Want to Read / Reading / Read | Title, Rating, Review, Author/Publisher Info, Mark Date, Douban Link, Cover |
 | Music | Want to Listen / Listening / Listened | Title, Rating, Review, Artist, Description, Douban Link, Cover |
 | Games | Want to Play / Playing / Played | Title, Rating, Review, Description, Mark Date, Douban Link, Cover |
+| Long Reviews | Film / Book / Music / Game reviews | Title, Subject, Rating, Published At, Body (excerpt or full text), Douban Link |
+
+### Export Formats
+
+| Format | Notes |
+|--------|-------|
+| JSON | Structured raw data and backup metadata — **always written** |
+| Excel | Beautified report: overview sheet, per-category sheets, status groups, stars, clickable links (default) |
+| CSV | One file per category, status as its own column and numeric ratings for analysis (`--format csv`) |
+| Markdown | Readable document grouped by category and status, good for notes or version control (`--format md`) |
 
 ### Excel Export
 
@@ -52,13 +62,25 @@ A personal data backup tool for Douban — One-click export of all your **movies
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install
 
-Requires Python 3.8+
+Requires Python 3.8+. Either way works:
 
 ```bash
+# Option 1: install as a command-line tool
+pip install .
+
+# Then run it from any directory
+douban-backup --help
+douban-backup-public <UserID>
+douban-import-cookies
+
+# Option 2: run straight from the source tree
 pip install -r requirements.txt
+python main.py
 ```
+
+Once installed, cookies and backups live in `~/.douban_backup`; running from a source checkout keeps them in the project's `data/`. Set `DOUBAN_BACKUP_HOME` to put them somewhere else.
 
 ### 2. Import Cookie (Recommended)
 
@@ -95,6 +117,15 @@ python main.py --delay 5
 
 # Incremental backup: fetch only entries added or edited since the last backup
 python main.py --incremental
+
+# Export Excel, CSV and Markdown together
+python main.py --format all
+
+# Download covers locally so the backup does not depend on Douban's image CDN
+python main.py --download-covers
+
+# Fetch the full text of long reviews (excerpts only by default)
+python main.py --full-reviews
 
 # View historical backups
 python main.py list
@@ -164,6 +195,33 @@ Things worth knowing:
 - **Interruptions don't poison the baseline** — The baseline is left untouched when a backup doesn't finish, so the next incremental run won't stop at the edge of partial data
 - **Public mode is supported too** — `--public` now runs on the shared crawling stack, so incremental, checkpoints, and retries all work; its checkpoint and baseline are stored separately from the authenticated ones
 
+### 8. Cover Downloads
+
+Storing only image URLs is not a complete backup — Douban's image CDN checks the Referer, and old URLs break once an entry is delisted or the site changes. `--download-covers` saves covers under `covers/<category>/` in the export directory and records the relative path in the JSON:
+
+```bash
+python main.py --download-covers
+```
+
+- Already-downloaded files are skipped, so re-running after an interruption is incremental
+- A single failure is counted, never raised — it must not take down data already crawled
+- Only Douban's own image hosts are fetched, and filenames use the entry ID or a URL digest, never the title
+
+### 9. Long Reviews
+
+Long reviews (film / book / music / game) are backed up by default. The list page carries only an excerpt; the full text requires opening each review page:
+
+```bash
+# Default: excerpt only, very cheap
+python main.py
+
+# Fetch full text — one extra request per review
+python main.py --full-reviews
+
+# Back up long reviews only
+python main.py reviews
+```
+
 ---
 
 ## Project Structure
@@ -180,10 +238,14 @@ Things worth knowing:
 ├── games.py             # Game data scraping
 ├── crawl_public.py      # Public data scraping without login (standalone script)
 ├── storage.py           # Data storage (JSON + beautified Excel export)
-├── cli.py               # Command-line exit-code translation
+├── cli.py               # Command-line exit codes and export formats
+├── covers.py            # Local cover image downloads
+├── reviews.py           # Long-review crawling
 ├── incremental.py       # Incremental backup fingerprinting and baseline store
 ├── backup_state.py      # Per-account resumable checkpoints
+├── pyproject.toml       # Packaging config and console scripts
 ├── requirements.txt     # Python dependencies
+├── .github/workflows/   # CI: multi-version tests and packaging checks
 └── data/
     ├── cookies.json     # Login credentials (auto-generated, permission 600)
     ├── user_info.json   # User info cache
@@ -193,6 +255,17 @@ Things worth knowing:
 ---
 
 ## Changelog
+
+### v1.8 — Cover Downloads, Long Reviews, Multi-Format Export, and Packaging
+
+- **Local cover downloads** — `--download-covers` stores covers under `covers/<category>/` so the backup no longer depends on Douban's image CDN. Existing files are skipped, making re-runs incremental; filenames use the entry ID or a URL digest (titles come from the page and may contain `..`, which would escape the target directory), and only Douban's own image hosts are fetched
+- **Long-review backup** — New `reviews` category covering film, book, music, and game reviews. Entries are keyed by the review's own ID (one subject can have several reviews), and the body is stored in `comment` so incremental fingerprinting and export logic apply unchanged. Excerpts by default; `--full-reviews` fetches the complete text
+- **CSV and Markdown export** — `--format xlsx,csv,md` or `--format all`. CSV writes one file per category with status as its own column and numeric ratings, using a BOM so Excel on Windows renders Chinese correctly; Markdown groups by category and status and escapes formatting characters in titles
+- **pip-installable** — Added `pyproject.toml` providing the `douban-backup`, `douban-backup-public`, and `douban-import-cookies` commands
+- **Data directory when installed** — Writing into site-packages gets wiped on upgrade and is sometimes read-only, so an installed copy uses `~/.douban_backup`; a source checkout keeps using the project's `data/`, and `DOUBAN_BACKUP_HOME` overrides both
+- **Continuous integration** — GitHub Actions runs the tests and static checks on Python 3.8/3.10/3.12 and verifies that the distribution and console scripts work
+- **Added LICENSE** — The README had carried an MIT badge with no license file
+- **Dropped the unused pandas dependency** — The heaviest of the four requirements, never imported anywhere
 
 ### v1.57 — Rating Parsing and Exit Code Fixes
 

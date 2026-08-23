@@ -230,5 +230,14 @@ def main(argv=None):
     )
 
 
+def cli_entry():
+    """控制台入口（pyproject 的 douban-backup-public 命令指向这里）。"""
+    try:
+        sys.exit(exit_code(main()))
+    except ValueError as error:
+        print(f"[ERROR] {error}")
+        sys.exit(2)
+
+
 if __name__ == '__main__':
-    sys.exit(exit_code(main()))
+    cli_entry()

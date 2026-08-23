@@ -4,7 +4,7 @@
 import os
 
 DOUBAN_BASE_URL = 'https://www.douban.com'
-APP_VERSION = '1.57'
+APP_VERSION = '1.8'
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -21,9 +21,34 @@ DELAY_BETWEEN_REQUESTS = 2
 # 否则上千张封面按 2 秒一张要跑半个多小时。
 COVER_DOWNLOAD_DELAY = 0.5
 
-# 数据存储目录始终相对于项目文件，而不是启动命令时的工作目录。
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(PROJECT_DIR, 'data')
+
+
+def _resolve_data_dir():
+    """决定 Cookie 和备份文件的存放位置。
+
+    从仓库直接运行时用项目下的 data/：这是一直以来的行为，路径相对于模块
+    而不是当前工作目录，所以在哪儿敲命令都一样。
+
+    但 pip 安装之后模块位于 site-packages，再往那里写就不合适了——升级会
+    被一并清掉，有些环境下那里还是只读的，用户也很难找到自己的备份。这种
+    情况改用主目录下的 ~/.douban_backup。
+
+    DOUBAN_BACKUP_HOME 可以覆盖上述判断。
+    """
+    override = os.environ.get('DOUBAN_BACKUP_HOME')
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+
+    # 这两个标记只存在于源码检出，安装到 site-packages 后不会有。
+    for marker in ('pyproject.toml', '.git'):
+        if os.path.exists(os.path.join(PROJECT_DIR, marker)):
+            return os.path.join(PROJECT_DIR, 'data')
+
+    return os.path.join(os.path.expanduser('~'), '.douban_backup')
+
+
+DATA_DIR = _resolve_data_dir()
 
 # 默认备份项目
 BACKUP_ITEMS = {

@@ -525,10 +525,15 @@ def main(argv=None):
     return backup.run()
 
 
-if __name__ == "__main__":
+def cli_entry():
+    """控制台入口（pyproject 的 douban-backup 命令指向这里）。"""
     try:
         sys.exit(exit_code(main()))
     except ValueError as error:
-        # 分类名写错等参数问题，给一句人话而不是一整段 traceback。
+        # 分类名或导出格式写错等参数问题，给一句人话而不是一整段 traceback。
         print(f"[ERROR] {error}")
         sys.exit(2)
+
+
+if __name__ == "__main__":
+    cli_entry()
