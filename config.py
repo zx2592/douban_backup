@@ -30,5 +30,8 @@ BACKUP_ITEMS = {
     'movies': True,
     'books': True,
     'music': True,
-    'games': True
+    'games': True,
+    # 长评列表每页 10 篇，通常只有几页，代价很小；
+    # 抓取完整正文另需每篇一次请求，所以放在 --full-reviews 后面。
+    'reviews': True,
 }

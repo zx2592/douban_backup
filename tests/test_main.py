@@ -7,6 +7,7 @@ from games import GameCrawler
 from main import DoubanBackup
 from movies import MovieCrawler
 from music import MusicCrawler
+from reviews import ReviewCrawler
 
 
 class BackupLoginTests(unittest.TestCase):
@@ -113,11 +114,14 @@ class BackupLoginTests(unittest.TestCase):
         ), patch.object(
             GameCrawler, "crawl_all_games", autospec=True,
             side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
+        ), patch.object(
+            ReviewCrawler, "crawl_all_reviews", autospec=True,
+            side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
         ):
             data = backup._backup_all()
 
-        self.assertEqual(set(data), {"movies", "books", "music", "games"})
-        self.assertEqual(len(crawlers), 4)
+        self.assertEqual(set(data), {"movies", "books", "music", "games", "reviews"})
+        self.assertEqual(len(crawlers), 5)
         for crawler in crawlers:
             self.assertEqual(crawler.request_delay, 4.5)
 

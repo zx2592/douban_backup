@@ -20,11 +20,12 @@ from diagnostics import classify_response
 from games import GameCrawler
 from incremental import Baseline
 from movies import MovieCrawler
+from reviews import ReviewCrawler
 from music import MusicCrawler
 from storage import DataStorage
 
 
-VALID_CATEGORIES = ["movies", "books", "music", "games"]
+VALID_CATEGORIES = ["movies", "books", "music", "games", "reviews"]
 
 # 豆瓣登录页受滑块验证保护，无法用账号密码自动登录，Cookie 导入是唯一认证方式。
 HINT_IMPORT_COOKIES = (
@@ -37,6 +38,7 @@ CATEGORY_LABELS = {
     "books": ("书籍", "本"),
     "music": ("音乐", "张"),
     "games": ("游戏", "个"),
+    "reviews": ("长评", "篇"),
 }
 
 
@@ -98,6 +100,11 @@ def parse_args(argv=None):
     )
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
     parser.add_argument(
+        "--full-reviews",
+        action="store_true",
+        help="抓取长评完整正文（默认只保存列表页的摘要）；每篇长评需要额外一次请求",
+    )
+    parser.add_argument(
         "--download-covers",
         action="store_true",
         help="把封面图片下载到导出目录的 covers/ 子目录，让备份不依赖豆瓣图床",
@@ -119,6 +126,7 @@ class DoubanBackup:
         request_delay=None,
         incremental=False,
         download_covers=False,
+        full_reviews=False,
     ):
         self.auth = DoubanAuth()
         self.selected_items = list(selected_items or VALID_CATEGORIES)
@@ -128,6 +136,7 @@ class DoubanBackup:
         self.request_delay = request_delay
         self.incremental = incremental
         self.download_covers = download_covers
+        self.full_reviews = full_reviews
         self.state_store = None
         self.baseline = None
         self.session = None
@@ -280,6 +289,7 @@ class DoubanBackup:
             "books": f"https://book.douban.com/people/{self.user_id}/collect?start=0&type=book",
             "music": f"https://music.douban.com/people/{self.user_id}/collect",
             "games": f"https://www.douban.com/people/{self.user_id}/games?action=collect",
+            "reviews": f"https://www.douban.com/people/{self.user_id}/reviews",
         }
         return {category: urls[category] for category in self.selected_items}
 
@@ -374,6 +384,20 @@ class DoubanBackup:
             all_data["music"] = music_crawler.crawl_all_music()
             self.backup_incomplete |= music_crawler.incomplete
 
+        if "reviews" in self.selected_items:
+            print("\n[长评] 备份长评...")
+            review_crawler = ReviewCrawler(
+                self.session,
+                state_store=self.state_store,
+                request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
+                fetch_full_text=self.full_reviews,
+            )
+            review_crawler.set_user_id(self.user_id)
+            all_data["reviews"] = review_crawler.crawl_all_reviews()
+            self.backup_incomplete |= review_crawler.incomplete
+
         if "games" in self.selected_items:
             print("\n[游戏] 备份游戏...")
             game_crawler = GameCrawler(
@@ -411,15 +435,18 @@ class DoubanBackup:
             "books": (BookCrawler, "crawl_all_books"),
             "music": (MusicCrawler, "crawl_all_music"),
             "games": (GameCrawler, "crawl_all_games"),
+            "reviews": (ReviewCrawler, "crawl_all_reviews"),
         }[category]
 
         self._prepare_storage("authenticated", [category])
+        extra = {"fetch_full_text": self.full_reviews} if category == "reviews" else {}
         crawler = crawler_class(
             self.session,
             state_store=self.state_store,
             request_delay=self.request_delay,
             baseline=self.baseline,
             incremental=self.incremental,
+            **extra,
         )
         crawler.set_user_id(self.user_id)
         category_data = getattr(crawler, crawl_method)()
@@ -465,6 +492,7 @@ def main(argv=None):
             checkpoint_enabled=not args.no_resume,
             incremental=args.incremental,
             download_covers=args.download_covers,
+            full_reviews=args.full_reviews,
         )
 
     backup = DoubanBackup(
@@ -474,6 +502,7 @@ def main(argv=None):
         request_delay=args.delay,
         incremental=args.incremental,
         download_covers=args.download_covers,
+        full_reviews=args.full_reviews,
     )
 
     if args.command == "verify":

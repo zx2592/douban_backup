@@ -25,13 +25,14 @@ from covers import CoverDownloader
 from games import GameCrawler
 from incremental import Baseline
 from movies import MovieCrawler
+from reviews import ReviewCrawler
 from music import MusicCrawler
 from storage import DataStorage
 
 DEFAULT_OUTPUT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'data', 'backup'
 )
-DEFAULT_CATEGORIES = ['movies', 'books', 'music', 'games']
+DEFAULT_CATEGORIES = ['movies', 'books', 'music', 'games', 'reviews']
 
 # 公开页不需要登录态，抓取压力较小，默认间隔比登录备份（2 秒）短一些。
 DEFAULT_REQUEST_DELAY = 1
@@ -42,6 +43,7 @@ CATEGORY_CRAWLERS = {
     'books': (BookCrawler, 'crawl_all_books', '书籍', '本'),
     'music': (MusicCrawler, 'crawl_all_music', '音乐', '张'),
     'games': (GameCrawler, 'crawl_all_games', '游戏', '个'),
+    'reviews': (ReviewCrawler, 'crawl_all_reviews', '长评', '篇'),
 }
 
 
@@ -70,6 +72,7 @@ def run_public_backup(
     checkpoint_enabled=True,
     incremental=False,
     download_covers=False,
+    full_reviews=False,
 ):
     categories = list(categories or DEFAULT_CATEGORIES)
     if request_delay is None:
@@ -107,12 +110,14 @@ def run_public_backup(
         for category in categories:
             crawler_class, crawl_method, label, _unit = CATEGORY_CRAWLERS[category]
             print(f"\n[{label}] 爬取{label}数据...")
+            extra = {'fetch_full_text': full_reviews} if category == 'reviews' else {}
             crawler = crawler_class(
                 session,
                 state_store=state_store,
                 request_delay=request_delay,
                 baseline=baseline,
                 incremental=incremental,
+                **extra,
             )
             crawler.set_user_id(user_id)
             all_data[category] = getattr(crawler, crawl_method)()
@@ -179,6 +184,11 @@ def parse_args(argv=None):
     parser.add_argument("--output", help="导出目录，默认使用 data/backup")
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
     parser.add_argument(
+        "--full-reviews",
+        action="store_true",
+        help="抓取长评完整正文（默认只保存摘要）；每篇长评需要额外一次请求",
+    )
+    parser.add_argument(
         "--download-covers",
         action="store_true",
         help="把封面图片下载到导出目录的 covers/ 子目录",
@@ -209,6 +219,7 @@ def main(argv=None):
         checkpoint_enabled=not args.no_resume,
         incremental=args.incremental,
         download_covers=args.download_covers,
+        full_reviews=args.full_reviews,
     )
 
 

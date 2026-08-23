@@ -33,6 +33,9 @@ _LINK_PREFIX = {
     'game': 'https://www.douban.com/game/',
 }
 
+# 导出时的分类顺序。长评排在四类收藏之后。
+CATEGORY_ORDER = ['movies', 'books', 'music', 'games', 'reviews']
+
 # 各类别的列定义: (字段key, 中文表头, 列宽)
 _COLUMNS = {
     'movies': [
@@ -62,6 +65,15 @@ _COLUMNS = {
         ('info', '简介', 30),
         ('_link', '豆瓣链接', 40),
     ],
+    'reviews': [
+        ('_index', '序号', 6),
+        ('title', '长评标题', 34),
+        ('subject', '评论对象', 26),
+        ('rating', '我的评分', 12),
+        ('date', '发表时间', 18),
+        ('comment', '正文', 60),
+        ('_link', '豆瓣链接', 40),
+    ],
     'games': [
         ('_index', '序号', 6),
         ('title', '标题', 30),
@@ -79,6 +91,7 @@ _CATEGORY_CN = {
     'books': ('书籍', '本'),
     'music': ('音乐', '张'),
     'games': ('游戏', '个'),
+    'reviews': ('长评', '篇'),
 }
 
 # 状态排列顺序（已完成优先）& 颜色
@@ -103,7 +116,20 @@ _STATUS_ORDER = {
         ('do', '在玩', '2196F3'),
         ('wish', '想玩', 'FF9800'),
     ],
+    # 长评没有收藏状态，只有一个分组。
+    'reviews': [
+        ('collect', '长评', '7B1FA2'),
+    ],
 }
+
+
+def is_flat_category(category):
+    """只有一个分组的分类（如长评）。
+
+    总览表的状态列是按"已完成/进行中/想要"排的，把长评的数量塞进"已完成"
+    会读起来像是看过多少部片子。这类分类只在合计列计数。
+    """
+    return len(_STATUS_ORDER.get(category, [])) == 1
 
 # 共用样式
 _THIN_BORDER = Border(
@@ -178,7 +204,7 @@ class DataStorage:
         self._write_overview_sheet(wb, data)
 
         # 2) 各类别 sheet
-        for category in ['movies', 'books', 'music', 'games']:
+        for category in CATEGORY_ORDER:
             if category in data and data[category]:
                 cat_cn, _ = _CATEGORY_CN[category]
                 self._write_category_sheet(wb, cat_cn, category, data[category])
@@ -260,7 +286,7 @@ class DataStorage:
         totals_by_col = [0] * len(status_labels)
         grand_total = 0
 
-        for category in ['movies', 'books', 'music', 'games']:
+        for category in CATEGORY_ORDER:
             if category not in data or not data[category]:
                 continue
             row += 1
@@ -270,17 +296,26 @@ class DataStorage:
             ws.cell(row=row, column=1).border = _THIN_BORDER
 
             cat_total = 0
-            for si, (status_key, _, _) in enumerate(_STATUS_ORDER[category]):
-                items = data[category].get(status_key, [])
-                count = len(items)
-                col = si + 2
-                cell = ws.cell(row=row, column=col, value=count)
-                cell.font = _CELL_FONT
-                cell.alignment = Alignment(horizontal='center')
-                cell.border = _THIN_BORDER
-                if si < len(totals_by_col):
-                    totals_by_col[si] += count
-                cat_total += count
+            flat = is_flat_category(category)
+            if flat:
+                # 长评这类没有收藏状态的分类只统计总数，状态列留空，
+                # 免得数字落在"已完成"下面被误读成看过多少部。
+                cat_total = sum(len(v) for v in data[category].values())
+                for si in range(len(status_labels)):
+                    cell = ws.cell(row=row, column=si + 2, value='')
+                    cell.border = _THIN_BORDER
+            else:
+                for si, (status_key, _, _) in enumerate(_STATUS_ORDER[category]):
+                    items = data[category].get(status_key, [])
+                    count = len(items)
+                    col = si + 2
+                    cell = ws.cell(row=row, column=col, value=count)
+                    cell.font = _CELL_FONT
+                    cell.alignment = Alignment(horizontal='center')
+                    cell.border = _THIN_BORDER
+                    if si < len(totals_by_col):
+                        totals_by_col[si] += count
+                    cat_total += count
 
             total_cell = ws.cell(row=row, column=len(headers), value=cat_total)
             total_cell.font = Font(name='Microsoft YaHei', bold=True, size=11)
@@ -324,10 +359,10 @@ class DataStorage:
         # 混合导出必须用中性标签，否则表头会张冠李戴。
         present = [
             category
-            for category in ['movies', 'books', 'music', 'games']
+            for category in CATEGORY_ORDER
             if category in data and data[category]
         ]
-        if len(present) == 1:
+        if len(present) == 1 and not is_flat_category(present[0]):
             return [label for _, label, _ in _STATUS_ORDER[present[0]]]
         return ['已完成', '进行中', '想要']
 
@@ -391,8 +426,11 @@ class DataStorage:
                         douban_id = item.get('douban_id', '')
                         item_type = item.get('type', category.rstrip('s'))
                         prefix = _LINK_PREFIX.get(item_type, 'https://www.douban.com/subject/')
-                        if douban_id:
-                            link_url = f'{prefix}{douban_id}/'
+                        # 长评的链接域名随被评对象变化（movie/book/music），
+                        # 拼不出来，所以条目自带完整 URL 时直接用它。
+                        link_url = item.get('url') or ''
+                        if link_url or douban_id:
+                            link_url = link_url or f'{prefix}{douban_id}/'
                             cell = ws.cell(row=current_row, column=ci)
                             cell.value = link_url
                             cell.hyperlink = link_url

@@ -49,6 +49,7 @@ class CliDispatchTests(unittest.TestCase):
             checkpoint_enabled=True,
             incremental=False,
             download_covers=False,
+            full_reviews=False,
         )
 
     def test_main_passes_custom_request_delay_to_backup(self):
@@ -57,12 +58,13 @@ class CliDispatchTests(unittest.TestCase):
             main.main(["--delay", "4.5"])
 
         backup_cls.assert_called_once_with(
-            selected_items=["movies", "books", "music", "games"],
+            selected_items=["movies", "books", "music", "games", "reviews"],
             output_dir=None,
             checkpoint_enabled=True,
             request_delay=4.5,
             incremental=False,
             download_covers=False,
+            full_reviews=False,
         )
         instance.run.assert_called_once()
 
@@ -72,12 +74,13 @@ class CliDispatchTests(unittest.TestCase):
 
         run_public.assert_called_once_with(
             "demo-user",
-            categories=["movies", "books", "music", "games"],
+            categories=["movies", "books", "music", "games", "reviews"],
             output_dir=None,
             request_delay=3.0,
             checkpoint_enabled=True,
             incremental=False,
             download_covers=False,
+            full_reviews=False,
         )
 
 
