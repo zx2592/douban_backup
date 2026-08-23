@@ -2,6 +2,7 @@
 数据存储模块
 支持保存为JSON和Excel格式（美化版）
 """
+import csv
 import json
 import os
 from datetime import datetime
@@ -33,6 +34,9 @@ _LINK_PREFIX = {
     'game': 'https://www.douban.com/game/',
 }
 
+# 导出时的分类顺序。长评排在四类收藏之后。
+CATEGORY_ORDER = ['movies', 'books', 'music', 'games', 'reviews']
+
 # 各类别的列定义: (字段key, 中文表头, 列宽)
 _COLUMNS = {
     'movies': [
@@ -62,6 +66,15 @@ _COLUMNS = {
         ('info', '简介', 30),
         ('_link', '豆瓣链接', 40),
     ],
+    'reviews': [
+        ('_index', '序号', 6),
+        ('title', '长评标题', 34),
+        ('subject', '评论对象', 26),
+        ('rating', '我的评分', 12),
+        ('date', '发表时间', 18),
+        ('comment', '正文', 60),
+        ('_link', '豆瓣链接', 40),
+    ],
     'games': [
         ('_index', '序号', 6),
         ('title', '标题', 30),
@@ -79,6 +92,7 @@ _CATEGORY_CN = {
     'books': ('书籍', '本'),
     'music': ('音乐', '张'),
     'games': ('游戏', '个'),
+    'reviews': ('长评', '篇'),
 }
 
 # 状态排列顺序（已完成优先）& 颜色
@@ -103,7 +117,20 @@ _STATUS_ORDER = {
         ('do', '在玩', '2196F3'),
         ('wish', '想玩', 'FF9800'),
     ],
+    # 长评没有收藏状态，只有一个分组。
+    'reviews': [
+        ('collect', '长评', '7B1FA2'),
+    ],
 }
+
+
+def is_flat_category(category):
+    """只有一个分组的分类（如长评）。
+
+    总览表的状态列是按"已完成/进行中/想要"排的，把长评的数量塞进"已完成"
+    会读起来像是看过多少部片子。这类分类只在合计列计数。
+    """
+    return len(_STATUS_ORDER.get(category, [])) == 1
 
 # 共用样式
 _THIN_BORDER = Border(
@@ -135,6 +162,11 @@ class DataStorage:
     def set_metadata(self, metadata):
         self.metadata = metadata or {}
 
+    @staticmethod
+    def new_timestamp():
+        """同一次备份的 JSON 和 Excel 共用一个时间戳，避免跨秒时文件名不一致。"""
+        return datetime.now().strftime('%Y%m%d_%H%M%S')
+
     def _build_payload(self, data, metadata=None):
         return {
             "metadata": merge_metadata(self.metadata, metadata),
@@ -151,9 +183,14 @@ class DataStorage:
         print(f"  已保存: {filepath}")
         return filepath
 
-    def save_all_json(self, all_data):
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return self.save_json(all_data, f"douban_backup_{timestamp}")
+    def save_all_json(self, all_data, timestamp=None):
+        return self.save_json(all_data, f"douban_backup_{timestamp or self.new_timestamp()}")
+
+    def save_category_json(self, data, category, timestamp=None):
+        """按分类保存，文件名带时间戳，避免覆盖历史备份。"""
+        return self.save_json(
+            data, f"douban_{category}_{timestamp or self.new_timestamp()}"
+        )
 
     # ───────── Excel ─────────
 
@@ -168,7 +205,7 @@ class DataStorage:
         self._write_overview_sheet(wb, data)
 
         # 2) 各类别 sheet
-        for category in ['movies', 'books', 'music', 'games']:
+        for category in CATEGORY_ORDER:
             if category in data and data[category]:
                 cat_cn, _ = _CATEGORY_CN[category]
                 self._write_category_sheet(wb, cat_cn, category, data[category])
@@ -181,9 +218,14 @@ class DataStorage:
         print(f"  已保存: {filepath}")
         return filepath
 
-    def save_all_excel(self, all_data):
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return self.save_excel(all_data, f"douban_backup_{timestamp}")
+    def save_all_excel(self, all_data, timestamp=None):
+        return self.save_excel(all_data, f"douban_backup_{timestamp or self.new_timestamp()}")
+
+    def save_category_excel(self, data, category, timestamp=None):
+        """按分类保存，文件名带时间戳，避免覆盖历史备份。"""
+        return self.save_excel(
+            data, f"douban_{category}_{timestamp or self.new_timestamp()}"
+        )
 
     # ───────── 总览 Sheet ─────────
 
@@ -245,7 +287,7 @@ class DataStorage:
         totals_by_col = [0] * len(status_labels)
         grand_total = 0
 
-        for category in ['movies', 'books', 'music', 'games']:
+        for category in CATEGORY_ORDER:
             if category not in data or not data[category]:
                 continue
             row += 1
@@ -255,17 +297,26 @@ class DataStorage:
             ws.cell(row=row, column=1).border = _THIN_BORDER
 
             cat_total = 0
-            for si, (status_key, _, _) in enumerate(_STATUS_ORDER[category]):
-                items = data[category].get(status_key, [])
-                count = len(items)
-                col = si + 2
-                cell = ws.cell(row=row, column=col, value=count)
-                cell.font = _CELL_FONT
-                cell.alignment = Alignment(horizontal='center')
-                cell.border = _THIN_BORDER
-                if si < len(totals_by_col):
-                    totals_by_col[si] += count
-                cat_total += count
+            flat = is_flat_category(category)
+            if flat:
+                # 长评这类没有收藏状态的分类只统计总数，状态列留空，
+                # 免得数字落在"已完成"下面被误读成看过多少部。
+                cat_total = sum(len(v) for v in data[category].values())
+                for si in range(len(status_labels)):
+                    cell = ws.cell(row=row, column=si + 2, value='')
+                    cell.border = _THIN_BORDER
+            else:
+                for si, (status_key, _, _) in enumerate(_STATUS_ORDER[category]):
+                    items = data[category].get(status_key, [])
+                    count = len(items)
+                    col = si + 2
+                    cell = ws.cell(row=row, column=col, value=count)
+                    cell.font = _CELL_FONT
+                    cell.alignment = Alignment(horizontal='center')
+                    cell.border = _THIN_BORDER
+                    if si < len(totals_by_col):
+                        totals_by_col[si] += count
+                    cat_total += count
 
             total_cell = ws.cell(row=row, column=len(headers), value=cat_total)
             total_cell.font = Font(name='Microsoft YaHei', bold=True, size=11)
@@ -309,10 +360,10 @@ class DataStorage:
         # 混合导出必须用中性标签，否则表头会张冠李戴。
         present = [
             category
-            for category in ['movies', 'books', 'music', 'games']
+            for category in CATEGORY_ORDER
             if category in data and data[category]
         ]
-        if len(present) == 1:
+        if len(present) == 1 and not is_flat_category(present[0]):
             return [label for _, label, _ in _STATUS_ORDER[present[0]]]
         return ['已完成', '进行中', '想要']
 
@@ -373,11 +424,8 @@ class DataStorage:
                         cell.font = _CELL_FONT
                         cell.alignment = Alignment(horizontal='center')
                     elif key == '_link':
-                        douban_id = item.get('douban_id', '')
-                        item_type = item.get('type', category.rstrip('s'))
-                        prefix = _LINK_PREFIX.get(item_type, 'https://www.douban.com/subject/')
-                        if douban_id:
-                            link_url = f'{prefix}{douban_id}/'
+                        link_url = self._item_link(category, item)
+                        if link_url:
                             cell = ws.cell(row=current_row, column=ci)
                             cell.value = link_url
                             cell.hyperlink = link_url
@@ -419,12 +467,161 @@ class DataStorage:
         if first_header_row is not None:
             ws.freeze_panes = f'A{first_header_row + 1}'
 
+
+    # ───────── CSV ─────────
+
+    def _rows_for_csv(self, category, cat_data):
+        """把一个分类摊平成 CSV 行。
+
+        CSV 没有分组和多工作表，所以状态要单独占一列；评分保留数字而不是
+        星号，方便再拿去做统计。
+        """
+        columns = [
+            (key, header)
+            for key, header, _ in _COLUMNS[category]
+            if key != '_index'
+        ]
+        headers = ['状态'] + [
+            '豆瓣链接' if key == '_link' else header for key, header in columns
+        ]
+
+        rows = []
+        for status_key, status_label, _ in _STATUS_ORDER[category]:
+            for item in cat_data.get(status_key, []):
+                row = [status_label]
+                for key, _header in columns:
+                    if key == '_link':
+                        row.append(self._item_link(category, item))
+                    else:
+                        row.append(item.get(key, ''))
+                rows.append(row)
+        return headers, rows
+
+    def save_csv(self, data, filename):
+        """每个分类一个 CSV 文件，返回写出的路径列表。"""
+        paths = []
+        for category in CATEGORY_ORDER:
+            if category not in data or not data[category]:
+                continue
+            headers, rows = self._rows_for_csv(category, data[category])
+            filepath = os.path.join(self.backup_dir, f"{filename}_{category}.csv")
+            # utf-8-sig 带 BOM，Windows 上的 Excel 和 WPS 才不会把中文显示成乱码。
+            with open(filepath, 'w', encoding='utf-8-sig', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                for row in rows:
+                    writer.writerow([sanitize_excel_value(value) for value in row])
+            print(f"  已保存: {filepath}")
+            paths.append(filepath)
+        return paths
+
+    def save_all_csv(self, all_data, timestamp=None):
+        return self.save_csv(all_data, f"douban_backup_{timestamp or self.new_timestamp()}")
+
+    def save_category_csv(self, data, category, timestamp=None):
+        return self.save_csv(data, f"douban_{category}_{timestamp or self.new_timestamp()}")
+
+    # ───────── Markdown ─────────
+
+    @staticmethod
+    def _escape_markdown(text):
+        """转义会影响排版的字符。条目标题来自页面，里面什么都可能有。"""
+        if not isinstance(text, str):
+            return str(text or '')
+        for char in ('\\', '`', '*', '_', '[', ']', '|'):
+            text = text.replace(char, '\\' + char)
+        return text.replace('\n', ' ').strip()
+
+    def _item_link(self, category, item):
+        """条目的豆瓣链接。自带完整 URL 时优先用它。"""
+        if item.get('url'):
+            return item['url']
+        douban_id = item.get('douban_id', '')
+        if not douban_id:
+            return ''
+        item_type = item.get('type', category.rstrip('s'))
+        prefix = _LINK_PREFIX.get(item_type, 'https://www.douban.com/subject/')
+        return f'{prefix}{douban_id}/'
+
+    def save_markdown(self, data, filename):
+        """导出为可读的 Markdown 文档。"""
+        filepath = os.path.join(self.backup_dir, f"{filename}.md")
+        metadata = merge_metadata(self.metadata)
+
+        lines = ['# 豆瓣备份', '']
+        for key, value in metadata_rows(metadata):
+            lines.append(f'- **{key}**: {value}')
+        lines.append('')
+
+        for category in CATEGORY_ORDER:
+            if category not in data or not data[category]:
+                continue
+            label, unit = _CATEGORY_CN[category]
+            total = sum(len(v) for v in data[category].values())
+            lines.append(f'## {label}（{total} {unit}）')
+            lines.append('')
+
+            # 长评这类只有一个分组的分类，再套一层同名小标题纯属重复。
+            flat = is_flat_category(category)
+            for status_key, status_label, _ in _STATUS_ORDER[category]:
+                items = data[category].get(status_key, [])
+                if not items:
+                    continue
+                if not flat:
+                    lines.append(f'### {status_label}（{len(items)} {unit}）')
+                    lines.append('')
+                for item in items:
+                    lines.extend(self._markdown_entry(category, item))
+                lines.append('')
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines).rstrip() + '\n')
+        print(f"  已保存: {filepath}")
+        return filepath
+
+    def _markdown_entry(self, category, item):
+        title = self._escape_markdown(item.get('title', '')) or '(无标题)'
+        link = self._item_link(category, item)
+        heading = f'[{title}]({link})' if link else title
+
+        meta = []
+        stars = _rating_to_stars(item.get('rating', ''))
+        if stars:
+            meta.append(stars)
+        for key in ('subject', 'author', 'artist', 'date'):
+            value = item.get(key)
+            if value:
+                meta.append(self._escape_markdown(value))
+        suffix = f" — {' · '.join(meta)}" if meta else ''
+
+        comment = (item.get('comment') or '').strip()
+        if not comment:
+            return [f'- {heading}{suffix}']
+
+        # 长评正文可能很长，单独成段而不是挤在条目行里。
+        if category == 'reviews':
+            body = '\n'.join(
+                f'  > {line}' for line in comment.splitlines() if line.strip()
+            )
+            return [f'- {heading}{suffix}', '', body, '']
+        return [f'- {heading}{suffix}', f'  > {self._escape_markdown(comment)}']
+
+    def save_all_markdown(self, all_data, timestamp=None):
+        return self.save_markdown(
+            all_data, f"douban_backup_{timestamp or self.new_timestamp()}"
+        )
+
+    def save_category_markdown(self, data, category, timestamp=None):
+        return self.save_markdown(
+            data, f"douban_{category}_{timestamp or self.new_timestamp()}"
+        )
+
     # ───────── 备份列表 ─────────
 
     def get_backup_list(self):
         files = []
         for f in os.listdir(self.backup_dir):
-            if f.endswith(('.json', '.xlsx')):
+            if f.endswith(('.json', '.xlsx', '.csv', '.md')):
                 filepath = os.path.join(self.backup_dir, f)
                 files.append({
                     'name': f,

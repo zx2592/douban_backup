@@ -1,14 +1,21 @@
 import unittest
 from unittest.mock import Mock, patch
 
+from auth import DoubanAuth
 from books import BookCrawler
 from games import GameCrawler
 from main import DoubanBackup
 from movies import MovieCrawler
 from music import MusicCrawler
+from reviews import ReviewCrawler
 
 
 class BackupLoginTests(unittest.TestCase):
+    def test_auth_exposes_no_password_login(self):
+        """豆瓣登录页有滑块验证，表单式账号密码登录已失效并被移除。"""
+        self.assertFalse(hasattr(DoubanAuth, "login"))
+        self.assertTrue(hasattr(DoubanAuth, "login_with_cookies"))
+
     def test_cookie_login_fails_when_user_id_is_missing(self):
         backup = DoubanBackup()
         backup.auth = Mock()
@@ -23,22 +30,30 @@ class BackupLoginTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertIsNone(backup.user_id)
 
-    def test_password_login_fails_when_user_id_is_missing(self):
+    def test_login_fails_without_valid_cookies(self):
         backup = DoubanBackup()
         backup.auth = Mock()
         backup.auth.login_with_cookies.return_value = False
-        backup.auth.login.return_value = True
-        backup.auth.get_session.return_value = object()
 
-        with patch("builtins.input", return_value="user@example.com"), patch(
-            "getpass.getpass", return_value="secret"
-        ), patch.object(
-            DoubanBackup, "_load_user_info", autospec=True, side_effect=lambda self: None
+        result = backup._login()
+
+        self.assertFalse(result)
+        self.assertIsNone(backup.user_id)
+        self.assertIsNone(backup.session)
+
+    def test_login_never_prompts_for_a_password(self):
+        """账号密码登录已移除，登录流程不得再读取任何交互输入。"""
+        backup = DoubanBackup()
+        backup.auth = Mock()
+        backup.auth.login_with_cookies.return_value = False
+
+        with patch("builtins.input", side_effect=AssertionError("不应提示输入账号")), patch(
+            "getpass.getpass", side_effect=AssertionError("不应提示输入密码")
         ):
             result = backup._login()
 
         self.assertFalse(result)
-        self.assertIsNone(backup.user_id)
+        backup.auth.login.assert_not_called()
 
     def test_login_succeeds_after_loading_user_id(self):
         backup = DoubanBackup()
@@ -99,13 +114,61 @@ class BackupLoginTests(unittest.TestCase):
         ), patch.object(
             GameCrawler, "crawl_all_games", autospec=True,
             side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
+        ), patch.object(
+            ReviewCrawler, "crawl_all_reviews", autospec=True,
+            side_effect=lambda self: (crawlers.append(self), {"collect": []})[1],
         ):
             data = backup._backup_all()
 
-        self.assertEqual(set(data), {"movies", "books", "music", "games"})
-        self.assertEqual(len(crawlers), 4)
+        self.assertEqual(set(data), {"movies", "books", "music", "games", "reviews"})
+        self.assertEqual(len(crawlers), 5)
         for crawler in crawlers:
             self.assertEqual(crawler.request_delay, 4.5)
+
+    def test_backup_category_saves_timestamped_files(self):
+        """单分类备份必须写入带时间戳的文件，且 JSON 与 Excel 共用同一个时间戳。"""
+        backup = DoubanBackup(selected_items=["movies"])
+        backup.storage = Mock()
+        backup.storage.backup_dir = "/tmp/backup"
+        backup.storage.new_timestamp.return_value = "20260322_101500"
+
+        with patch.object(
+            DoubanBackup, "_login", autospec=True, return_value=True
+        ), patch("main.MovieCrawler") as movie_cls:
+            crawler = movie_cls.return_value
+            crawler.crawl_all_movies.return_value = {"collect": []}
+            crawler.incomplete = False
+
+            backup.backup_category("movies")
+
+        backup.storage.save_category_json.assert_called_once_with(
+            {"collect": []}, "movies", timestamp="20260322_101500"
+        )
+        backup.storage.save_category_excel.assert_called_once_with(
+            {"movies": {"collect": []}}, "movies", timestamp="20260322_101500"
+        )
+        backup.storage.save_json.assert_not_called()
+        backup.storage.save_excel.assert_not_called()
+
+    def test_full_backup_shares_one_timestamp(self):
+        backup = DoubanBackup(selected_items=["movies"])
+        backup.storage = Mock()
+        backup.storage.backup_dir = "/tmp/backup"
+        backup.storage.new_timestamp.return_value = "20260322_101500"
+
+        with patch.object(
+            DoubanBackup, "_login", autospec=True, return_value=True
+        ), patch.object(
+            DoubanBackup, "_backup_all", autospec=True, return_value={"movies": {}}
+        ):
+            backup.run()
+
+        backup.storage.save_all_json.assert_called_once_with(
+            {"movies": {}}, timestamp="20260322_101500"
+        )
+        backup.storage.save_all_excel.assert_called_once_with(
+            {"movies": {}}, timestamp="20260322_101500"
+        )
 
     def test_verify_reports_login_failure(self):
         backup = DoubanBackup()
@@ -150,6 +213,56 @@ class BackupLoginTests(unittest.TestCase):
         self.assertEqual(report["checks"][0]["status"], "ok")
         self.assertEqual(report["checks"][1]["category"], "books")
         self.assertEqual(report["checks"][1]["status"], "error")
+
+
+class BaselineUpdateTests(unittest.TestCase):
+    """基线只应在完整跑完的备份之后更新。"""
+
+    def _backup(self, incomplete):
+        backup = DoubanBackup(selected_items=["movies"])
+        backup.storage = Mock()
+        backup.storage.backup_dir = "/tmp/backup"
+        backup.storage.new_timestamp.return_value = "20260322_101500"
+        backup.baseline = Mock()
+        backup.backup_incomplete = incomplete
+        backup.state_store = None
+        return backup
+
+    def _run(self, backup):
+        with patch.object(
+            DoubanBackup, "_login", autospec=True, return_value=True
+        ), patch.object(
+            DoubanBackup,
+            "_backup_all",
+            autospec=True,
+            return_value={"movies": {"collect": [{"douban_id": "1"}]}},
+        ):
+            return backup.run()
+
+    def test_complete_backup_updates_baseline(self):
+        backup = self._backup(incomplete=False)
+
+        self.assertTrue(self._run(backup))
+
+        backup.baseline.update.assert_called_once_with(
+            "movies", "collect", [{"douban_id": "1"}]
+        )
+        backup.baseline.save.assert_called_once()
+
+    def test_incomplete_backup_leaves_baseline_untouched(self):
+        """部分数据只是最新条目的前缀，写进基线会让下次增量跳过中间那段。"""
+        backup = self._backup(incomplete=True)
+
+        self.assertFalse(self._run(backup))
+
+        backup.baseline.update.assert_not_called()
+        backup.baseline.save.assert_not_called()
+
+    def test_update_baseline_is_a_noop_without_baseline(self):
+        backup = self._backup(incomplete=False)
+        backup.baseline = None
+
+        self.assertIsNone(backup._update_baseline({"movies": {"collect": []}}))
 
 
 if __name__ == "__main__":

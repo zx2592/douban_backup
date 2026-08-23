@@ -5,10 +5,11 @@
 import time
 import re
 import json
-from config import REQUEST_TIMEOUT, MAX_RETRIES, DELAY_BETWEEN_REQUESTS, HEADERS
+from config import REQUEST_TIMEOUT, MAX_RETRIES, DELAY_BETWEEN_REQUESTS
 from bs4 import BeautifulSoup
 
 from diagnostics import classify_response, describe_empty_parse, is_known_empty_page
+from incremental import merge_items, take_until_known
 
 
 class BaseCrawler:
@@ -21,6 +22,8 @@ class BaseCrawler:
         category_key=None,
         state_store=None,
         request_delay=DELAY_BETWEEN_REQUESTS,
+        baseline=None,
+        incremental=False,
     ):
         self.session = session
         self.data = []
@@ -29,7 +32,12 @@ class BaseCrawler:
         self.request_delay = (
             DELAY_BETWEEN_REQUESTS if request_delay is None else request_delay
         )
+        self.baseline = baseline
+        # 没有基线可比时增量没有意义，直接退化成完整抓取。
+        self.incremental = bool(incremental and baseline is not None)
         self.incomplete = False
+        self.stopped_at_baseline = False
+        self.fetched_count = 0
 
     def _make_request(self, url, retries=MAX_RETRIES):
         """发起HTTP请求，带重试机制"""
@@ -60,6 +68,25 @@ class BaseCrawler:
         raise NotImplementedError
 
     def crawl_collection(self, url, collection_type=None):
+        baseline_items = []
+        baseline_index = {}
+        if self.incremental and self.category_key:
+            baseline_items = self.baseline.get_items(self.category_key, collection_type)
+            baseline_index = self.baseline.index_for(self.category_key, collection_type)
+            if baseline_index:
+                print(f"[增量] 基线已有 {len(baseline_index)} 条，只抓取新增和改动。")
+
+        crawled = self._crawl_with_checkpoint(url, collection_type, baseline_index)
+
+        # 抓取结果只是"新增 + 改动"，要和基线合并才是这个收藏夹的全量数据。
+        if not baseline_items:
+            return crawled
+
+        merged = merge_items(crawled, baseline_items)
+        print(f"  本次新增/更新 {len(crawled)} 条，合并后共 {len(merged)} 条")
+        return merged
+
+    def _crawl_with_checkpoint(self, url, collection_type, baseline_index=None):
         initial_data = []
         start_url = url
 
@@ -73,11 +100,17 @@ class BaseCrawler:
             if initial_data or start_url != url:
                 print(f"[RESUME] 从断点继续: {self.category_key}/{collection_type}")
 
-        return self.crawl(start_url, collection_type, initial_data=initial_data)
+        return self.crawl(
+            start_url,
+            collection_type,
+            initial_data=initial_data,
+            baseline_index=baseline_index,
+        )
 
-    def crawl(self, url, collection_type=None, initial_data=None):
+    def crawl(self, url, collection_type=None, initial_data=None, baseline_index=None):
         """爬取数据"""
         self.data = list(initial_data or [])
+        baseline_index = baseline_index or {}
         current_url = url
         visited_urls = set()
 
@@ -110,14 +143,24 @@ class BaseCrawler:
                 break
 
             data_before_page = list(self.data)
-            items = self._parse_items(response, collection_type)
+            raw_items = self._parse_items(response, collection_type)
+
+            # 增量模式下截断当前页；分页判断仍用截断前的原始条目，
+            # 否则"不足一页即最后一页"的启发式会被截断结果带偏。
+            items, reached_baseline = take_until_known(raw_items, baseline_index)
             self.data.extend(items)
+            self.fetched_count += len(items)
             print(f"  已获取 {len(items)} 条数据")
 
             next_url = self._get_pagination(response)
-            page_complete = self._is_last_page(response, items)
+            page_complete = self._is_last_page(response, raw_items)
 
-            if not items and next_url is None:
+            if reached_baseline:
+                print("[增量] 已到达上次备份的边界，停止翻页。")
+                self.stopped_at_baseline = True
+                next_url = None
+                page_complete = True
+            elif not raw_items and next_url is None:
                 empty_message = describe_empty_parse(response)
                 print(f"[WARN] {empty_message}")
                 page_complete = is_known_empty_page(response)

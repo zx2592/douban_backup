@@ -1,7 +1,6 @@
 import unittest
 from pathlib import Path
 
-from bs4 import BeautifulSoup
 
 from books import BookCrawler
 from games import GameCrawler
@@ -38,6 +37,8 @@ class CollectionParserTests(unittest.TestCase):
         item = self.parse_fixture(GameCrawler, "game_collection_item.html")
         self.assertEqual(item["douban_id"], "3000003")
         self.assertEqual(item["comment"], "真正的游戏短评")
+        # 游戏条目的简介和短评在同一块里，简介不能混进短评。
+        self.assertNotIn("游戏简介", item["comment"])
         self.assertNotIn("游戏简介", item["comment"])
 
 

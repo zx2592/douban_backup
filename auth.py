@@ -1,14 +1,13 @@
 """
 豆瓣登录认证模块
-支持账号密码登录和cookies登录
+
+豆瓣登录页受滑块验证保护，表单提交式的账号密码登录已不再可用，
+本模块只支持从浏览器导入的 Cookie 认证（见 import_cookies.py）。
 """
-import getpass
 import json
 import os
-import time
 import requests
 from config import DOUBAN_BASE_URL, HEADERS, DATA_DIR
-from file_security import restrict_file_permissions
 
 
 class DoubanAuth:
@@ -19,63 +18,30 @@ class DoubanAuth:
         self.user_info_file = os.path.join(DATA_DIR, 'user_info.json')
 
     def login_with_cookies(self):
-        """使用保存的cookies登录"""
-        if os.path.exists(self.cookies_file):
-            with open(self.cookies_file, 'r', encoding='utf-8') as f:
-                cookies = json.load(f)
-            self.session.cookies.update(cookies)
-
-            if self._verify_login():
-                print("[OK] 使用保存的 cookies 登录成功")
-                self._save_user_info()
-                return True
-
-        return False
-
-    def login(self, email=None, password=None):
-        """账号密码登录"""
-        if not email or not password:
-            print("请提供豆瓣账号和密码")
+        """使用保存的 cookies 登录。这是唯一支持的认证方式。"""
+        if not os.path.exists(self.cookies_file):
+            print("[WARN] 未找到已保存的 Cookie 文件。")
             return False
 
-        login_url = f"{DOUBAN_BASE_URL}/people/"
-        self.session.get(login_url, timeout=30)
-
-        captcha_url = f"{DOUBAN_BASE_URL}/misc/id"
-        params = {'type': 'login'}
         try:
-            captcha = self.session.get(captcha_url, params=params, timeout=30)
-            captcha_id = captcha.json().get('id')
-            if captcha_id:
-                print(f"检测到验证码ID: {captcha_id}")
-        except Exception as e:
-            captcha_id = None
-            print(f"获取验证码失败: {e}")
+            with open(self.cookies_file, 'r', encoding='utf-8') as f:
+                cookies = json.load(f)
+        except (OSError, json.JSONDecodeError) as error:
+            print(f"[WARN] Cookie 文件无法读取（{error}），请重新导入。")
+            return False
 
-        login_data = {
-            'ck': '',
-            'remember': 'on',
-            'redir': 'https://www.douban.com/',
-            'form_email': email,
-            'form_password': password,
-        }
+        if not isinstance(cookies, dict) or not cookies:
+            print("[WARN] Cookie 文件内容为空或格式不正确，请重新导入。")
+            return False
 
-        if captcha_id:
-            login_data['captcha_id'] = captcha_id
-            print("已包含验证码ID")
+        self.session.cookies.update(cookies)
 
-        login_post_url = f"{DOUBAN_BASE_URL}/accounts/login"
-        response = self.session.post(login_post_url, data=login_data, timeout=30)
-
-        print(f"登录响应URL: {response.url}")
-
-        if response.url == 'https://www.douban.com/' or 'douban.com/people' in response.url:
-            print("[OK] 登录成功")
-            self._save_cookies()
+        if self._verify_login():
+            print("[OK] 使用保存的 cookies 登录成功")
             self._save_user_info()
             return True
 
-        print("登录失败，请检查账号密码或验证码")
+        print("[WARN] Cookie 已失效或已过期。")
         return False
 
     def _verify_login(self):
@@ -85,14 +51,6 @@ class DoubanAuth:
             return response.url != f"{DOUBAN_BASE_URL}/accounts/login"
         except Exception:
             return False
-
-    def _save_cookies(self):
-        """保存cookies到文件"""
-        cookies = self.session.cookies.get_dict()
-        with open(self.cookies_file, 'w', encoding='utf-8') as f:
-            json.dump(cookies, f, ensure_ascii=False)
-        if not restrict_file_permissions(self.cookies_file):
-            print(f"[WARN] 无法自动收紧 {self.cookies_file} 的访问权限，请确认该文件仅当前用户可读写。")
 
     def _save_user_info(self):
         """保存用户信息"""

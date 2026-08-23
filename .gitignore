@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
 # Data & Config
 data/
 cookies.json

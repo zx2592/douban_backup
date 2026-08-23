@@ -2,7 +2,6 @@
 豆瓣数据备份工具主程序
 """
 import argparse
-import getpass
 import json
 import os
 import sys
@@ -13,21 +12,33 @@ from auth import DoubanAuth
 from backup_metadata import build_metadata
 from backup_state import BackupState
 from books import BookCrawler
+from cli import exit_code, export_all, export_category, parse_formats
+from covers import CoverDownloader
 from config import BACKUP_ITEMS, DATA_DIR, REQUEST_TIMEOUT
 from crawl_public import run_public_backup
 from diagnostics import classify_response
 from games import GameCrawler
+from incremental import Baseline
 from movies import MovieCrawler
+from reviews import ReviewCrawler
 from music import MusicCrawler
 from storage import DataStorage
 
 
-VALID_CATEGORIES = ["movies", "books", "music", "games"]
+VALID_CATEGORIES = ["movies", "books", "music", "games", "reviews"]
+
+# 豆瓣登录页受滑块验证保护，无法用账号密码自动登录，Cookie 导入是唯一认证方式。
+HINT_IMPORT_COOKIES = (
+    "[ERROR] 没有可用的登录 Cookie。\n"
+    "        请先在浏览器登录豆瓣，然后运行 python import_cookies.py 导入 Cookie。"
+)
+
 CATEGORY_LABELS = {
     "movies": ("电影", "部"),
     "books": ("书籍", "本"),
     "music": ("音乐", "张"),
     "games": ("游戏", "个"),
+    "reviews": ("长评", "篇"),
 }
 
 
@@ -88,6 +99,27 @@ def parse_args(argv=None):
         help="每次请求之间等待的秒数；默认登录备份为 2 秒，公开备份为 1 秒",
     )
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
+    parser.add_argument(
+        "--format",
+        dest="formats",
+        metavar="FORMATS",
+        help="导出格式，逗号分隔：xlsx（默认）、csv、md，或 all；JSON 始终导出",
+    )
+    parser.add_argument(
+        "--full-reviews",
+        action="store_true",
+        help="抓取长评完整正文（默认只保存列表页的摘要）；每篇长评需要额外一次请求",
+    )
+    parser.add_argument(
+        "--download-covers",
+        action="store_true",
+        help="把封面图片下载到导出目录的 covers/ 子目录，让备份不依赖豆瓣图床",
+    )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="增量备份：只抓取上次备份之后新增或改动的条目（不会同步已删除的收藏）",
+    )
     return parser.parse_args(argv)
 
 
@@ -98,6 +130,10 @@ class DoubanBackup:
         output_dir=None,
         checkpoint_enabled=True,
         request_delay=None,
+        incremental=False,
+        download_covers=False,
+        full_reviews=False,
+        formats=None,
     ):
         self.auth = DoubanAuth()
         self.selected_items = list(selected_items or VALID_CATEGORIES)
@@ -105,7 +141,12 @@ class DoubanBackup:
         self.storage = DataStorage(backup_dir=output_dir)
         self.checkpoint_enabled = checkpoint_enabled
         self.request_delay = request_delay
+        self.incremental = incremental
+        self.download_covers = download_covers
+        self.full_reviews = full_reviews
+        self.formats = list(formats or ['xlsx'])
         self.state_store = None
+        self.baseline = None
         self.session = None
         self.user_id = None
         self.user_name = None
@@ -135,10 +176,11 @@ class DoubanBackup:
         try:
             print("\n开始备份数据...")
             all_data = self._backup_all()
+            self._download_covers(all_data)
 
             print("\n保存数据...")
-            self.storage.save_all_json(all_data)
-            self.storage.save_all_excel(all_data)
+            timestamp = self.storage.new_timestamp()
+            export_all(self.storage, all_data, self.formats, timestamp)
 
             if self.backup_incomplete or (
                 self.state_store and self.state_store.has_incomplete_collections()
@@ -150,12 +192,38 @@ class DoubanBackup:
             if self.state_store:
                 self.state_store.clear()
 
+            self._update_baseline(all_data)
+
             print("\n备份完成!")
             self._print_summary(all_data)
             return True
         except KeyboardInterrupt:
             print("\n[WARN] 已中断，断点状态已保存，下次运行会从上次进度继续。")
             return False
+
+    def _download_covers(self, data):
+        """把封面下载到本地。放在抓取之后、导出之前，这样条目里的
+        cover_path 能一起写进 JSON。"""
+        if not self.download_covers:
+            return None
+        print("\n下载封面...")
+        downloader = CoverDownloader(self.session, self.storage.backup_dir)
+        return downloader.download_all(data)
+
+    def _update_baseline(self, data):
+        """把本次备份结果写回基线，供下次增量比对。
+
+        只有完整跑完的备份才配更新基线。中断或抓取失败时 data 只是最新
+        条目的一个前缀，把它当成基线会让下次增量在这个前缀的边界就停下，
+        中间那段再也抓不回来。
+        """
+        if self.baseline is None:
+            return None
+
+        for category, collections in data.items():
+            for collection, items in collections.items():
+                self.baseline.update(category, collection, items)
+        return self.baseline.save()
 
     def verify(self):
         """验证 Cookie、用户信息和分类页面可访问性。"""
@@ -173,7 +241,7 @@ class DoubanBackup:
         if not self.auth.login_with_cookies():
             report["error_code"] = "login_expired"
             report["message"] = "Cookie 无效或已过期，请重新导入。"
-            print(f"[ERROR] {report['message']}")
+            print(HINT_IMPORT_COOKIES)
             return report
 
         self.session = self.auth.get_session()
@@ -228,23 +296,18 @@ class DoubanBackup:
             "books": f"https://book.douban.com/people/{self.user_id}/collect?start=0&type=book",
             "music": f"https://music.douban.com/people/{self.user_id}/collect",
             "games": f"https://www.douban.com/people/{self.user_id}/games?action=collect",
+            "reviews": f"https://www.douban.com/people/{self.user_id}/reviews",
         }
         return {category: urls[category] for category in self.selected_items}
 
     def _login(self):
-        """登录豆瓣"""
+        """使用浏览器导入的 Cookie 登录豆瓣。"""
         print("\n[1/2] 登录豆瓣账号")
 
         if self.auth.login_with_cookies():
             return self._finalize_login()
 
-        email = input("请输入豆瓣邮箱: ").strip()
-        password = getpass.getpass("请输入密码（输入时不显示）: ")
-
-        if self.auth.login(email, password):
-            return self._finalize_login()
-
-        print("登录失败!")
+        print(HINT_IMPORT_COOKIES)
         return False
 
     def _finalize_login(self):
@@ -257,6 +320,14 @@ class DoubanBackup:
                     self.storage.backup_dir,
                     user_id=self.user_id,
                 )
+            # 基线始终加载：非增量运行结束后也要刷新它，
+            # 这样之后任何一次 --incremental 都有可用的比对起点。
+            self.baseline = Baseline(
+                self.storage.backup_dir,
+                user_id=self.user_id,
+            )
+            if self.incremental and self.baseline.is_empty():
+                print("[增量] 尚无基线数据，本次将完整备份并建立基线。")
             return True
 
         self.session = None
@@ -287,6 +358,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             movie_crawler.set_user_id(self.user_id)
             all_data["movies"] = movie_crawler.crawl_all_movies()
@@ -298,6 +371,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             book_crawler.set_user_id(self.user_id)
             all_data["books"] = book_crawler.crawl_all_books()
@@ -309,10 +384,26 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             music_crawler.set_user_id(self.user_id)
             all_data["music"] = music_crawler.crawl_all_music()
             self.backup_incomplete |= music_crawler.incomplete
+
+        if "reviews" in self.selected_items:
+            print("\n[长评] 备份长评...")
+            review_crawler = ReviewCrawler(
+                self.session,
+                state_store=self.state_store,
+                request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
+                fetch_full_text=self.full_reviews,
+            )
+            review_crawler.set_user_id(self.user_id)
+            all_data["reviews"] = review_crawler.crawl_all_reviews()
+            self.backup_incomplete |= review_crawler.incomplete
 
         if "games" in self.selected_items:
             print("\n[游戏] 备份游戏...")
@@ -320,6 +411,8 @@ class DoubanBackup:
                 self.session,
                 state_store=self.state_store,
                 request_delay=self.request_delay,
+                baseline=self.baseline,
+                incremental=self.incremental,
             )
             game_crawler.set_user_id(self.user_id)
             all_data["games"] = game_crawler.crawl_all_games()
@@ -349,20 +442,28 @@ class DoubanBackup:
             "books": (BookCrawler, "crawl_all_books"),
             "music": (MusicCrawler, "crawl_all_music"),
             "games": (GameCrawler, "crawl_all_games"),
+            "reviews": (ReviewCrawler, "crawl_all_reviews"),
         }[category]
 
         self._prepare_storage("authenticated", [category])
+        extra = {"fetch_full_text": self.full_reviews} if category == "reviews" else {}
         crawler = crawler_class(
             self.session,
             state_store=self.state_store,
             request_delay=self.request_delay,
+            baseline=self.baseline,
+            incremental=self.incremental,
+            **extra,
         )
         crawler.set_user_id(self.user_id)
         category_data = getattr(crawler, crawl_method)()
         data = {category: category_data}
+        self._download_covers(data)
 
-        self.storage.save_json(category_data, category)
-        self.storage.save_excel(data, category)
+        timestamp = self.storage.new_timestamp()
+        export_category(
+            self.storage, category_data, data, self.formats, category, timestamp
+        )
         if crawler.incomplete or (
             self.state_store and self.state_store.has_incomplete_collections()
         ):
@@ -371,6 +472,7 @@ class DoubanBackup:
             return False
         if self.state_store:
             self.state_store.clear()
+        self._update_baseline(data)
         self._print_summary(data)
         return True
 
@@ -395,6 +497,11 @@ def main(argv=None):
             categories=selected_items,
             output_dir=args.output,
             request_delay=args.delay,
+            checkpoint_enabled=not args.no_resume,
+            incremental=args.incremental,
+            download_covers=args.download_covers,
+            full_reviews=args.full_reviews,
+            formats=parse_formats(args.formats),
         )
 
     backup = DoubanBackup(
@@ -402,6 +509,10 @@ def main(argv=None):
         output_dir=args.output,
         checkpoint_enabled=not args.no_resume,
         request_delay=args.delay,
+        incremental=args.incremental,
+        download_covers=args.download_covers,
+        full_reviews=args.full_reviews,
+        formats=parse_formats(args.formats),
     )
 
     if args.command == "verify":
@@ -414,5 +525,15 @@ def main(argv=None):
     return backup.run()
 
 
+def cli_entry():
+    """控制台入口（pyproject 的 douban-backup 命令指向这里）。"""
+    try:
+        sys.exit(exit_code(main()))
+    except ValueError as error:
+        # 分类名或导出格式写错等参数问题，给一句人话而不是一整段 traceback。
+        print(f"[ERROR] {error}")
+        sys.exit(2)
+
+
 if __name__ == "__main__":
-    main()
+    cli_entry()
