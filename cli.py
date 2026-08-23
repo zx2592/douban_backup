@@ -17,3 +17,46 @@ def exit_code(result):
     if isinstance(result, dict) and "ok" in result:
         return 0 if result["ok"] else 1
     return 0
+
+
+# 支持的导出格式。JSON 始终会写，它是结构化原始数据，不参与选择。
+VALID_FORMATS = ('xlsx', 'csv', 'md')
+
+
+def parse_formats(raw_value):
+    """解析 --format 的取值，返回去重且顺序稳定的格式列表。"""
+    if not raw_value:
+        return ['xlsx']
+    parts = [part.strip().lower() for part in raw_value.split(',') if part.strip()]
+    if 'all' in parts:
+        return list(VALID_FORMATS)
+
+    invalid = [part for part in parts if part not in VALID_FORMATS]
+    if invalid:
+        raise ValueError(
+            f"不支持的导出格式: {', '.join(invalid)}；"
+            f"可选 {', '.join(VALID_FORMATS)} 或 all"
+        )
+    return [fmt for fmt in VALID_FORMATS if fmt in parts]
+
+
+def export_all(storage, data, formats, timestamp):
+    """按所选格式导出。JSON 无条件写出，作为结构化原始数据。"""
+    storage.save_all_json(data, timestamp=timestamp)
+    if 'xlsx' in formats:
+        storage.save_all_excel(data, timestamp=timestamp)
+    if 'csv' in formats:
+        storage.save_all_csv(data, timestamp=timestamp)
+    if 'md' in formats:
+        storage.save_all_markdown(data, timestamp=timestamp)
+
+
+def export_category(storage, category_data, data, formats, category, timestamp):
+    """单分类导出。JSON 里只放该分类的数据，与既有行为一致。"""
+    storage.save_category_json(category_data, category, timestamp=timestamp)
+    if 'xlsx' in formats:
+        storage.save_category_excel(data, category, timestamp=timestamp)
+    if 'csv' in formats:
+        storage.save_category_csv(data, category, timestamp=timestamp)
+    if 'md' in formats:
+        storage.save_category_markdown(data, category, timestamp=timestamp)

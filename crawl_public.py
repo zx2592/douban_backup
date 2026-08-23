@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from backup_metadata import build_metadata
 from backup_state import BackupState
 from books import BookCrawler
-from cli import exit_code
+from cli import exit_code, export_all, parse_formats
 from config import HEADERS
 from covers import CoverDownloader
 from games import GameCrawler
@@ -73,6 +73,7 @@ def run_public_backup(
     incremental=False,
     download_covers=False,
     full_reviews=False,
+    formats=None,
 ):
     categories = list(categories or DEFAULT_CATEGORIES)
     if request_delay is None:
@@ -133,8 +134,7 @@ def run_public_backup(
         print("\n下载封面...")
         CoverDownloader(session, storage.backup_dir).download_all(all_data)
 
-    storage.save_all_json(all_data, timestamp=timestamp)
-    storage.save_all_excel(all_data, timestamp=timestamp)
+    export_all(storage, all_data, list(formats or ['xlsx']), timestamp)
 
     incomplete = incomplete or (
         state_store is not None and state_store.has_incomplete_collections()
@@ -184,6 +184,12 @@ def parse_args(argv=None):
     parser.add_argument("--output", help="导出目录，默认使用 data/backup")
     parser.add_argument("--no-resume", action="store_true", help="禁用断点续传")
     parser.add_argument(
+        "--format",
+        dest="formats",
+        metavar="FORMATS",
+        help="导出格式，逗号分隔：xlsx（默认）、csv、md，或 all；JSON 始终导出",
+    )
+    parser.add_argument(
         "--full-reviews",
         action="store_true",
         help="抓取长评完整正文（默认只保存摘要）；每篇长评需要额外一次请求",
@@ -220,6 +226,7 @@ def main(argv=None):
         incremental=args.incremental,
         download_covers=args.download_covers,
         full_reviews=args.full_reviews,
+        formats=parse_formats(args.formats),
     )
 
 

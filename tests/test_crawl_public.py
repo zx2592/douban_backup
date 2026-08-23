@@ -167,6 +167,7 @@ class PublicCliTests(unittest.TestCase):
             incremental=True,
             download_covers=False,
             full_reviews=False,
+            formats=['xlsx'],
         )
 
     def test_standalone_cli_defaults(self):
@@ -181,6 +182,7 @@ class PublicCliTests(unittest.TestCase):
             incremental=False,
             download_covers=False,
             full_reviews=False,
+            formats=['xlsx'],
         )
 
     def test_blank_user_id_aborts(self):

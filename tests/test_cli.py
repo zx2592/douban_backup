@@ -50,6 +50,7 @@ class CliDispatchTests(unittest.TestCase):
             incremental=False,
             download_covers=False,
             full_reviews=False,
+            formats=['xlsx'],
         )
 
     def test_main_passes_custom_request_delay_to_backup(self):
@@ -65,6 +66,7 @@ class CliDispatchTests(unittest.TestCase):
             incremental=False,
             download_covers=False,
             full_reviews=False,
+            formats=['xlsx'],
         )
         instance.run.assert_called_once()
 
@@ -81,6 +83,7 @@ class CliDispatchTests(unittest.TestCase):
             incremental=False,
             download_covers=False,
             full_reviews=False,
+            formats=['xlsx'],
         )
 
 

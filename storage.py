@@ -2,6 +2,7 @@
 数据存储模块
 支持保存为JSON和Excel格式（美化版）
 """
+import csv
 import json
 import os
 from datetime import datetime
@@ -423,14 +424,8 @@ class DataStorage:
                         cell.font = _CELL_FONT
                         cell.alignment = Alignment(horizontal='center')
                     elif key == '_link':
-                        douban_id = item.get('douban_id', '')
-                        item_type = item.get('type', category.rstrip('s'))
-                        prefix = _LINK_PREFIX.get(item_type, 'https://www.douban.com/subject/')
-                        # 长评的链接域名随被评对象变化（movie/book/music），
-                        # 拼不出来，所以条目自带完整 URL 时直接用它。
-                        link_url = item.get('url') or ''
-                        if link_url or douban_id:
-                            link_url = link_url or f'{prefix}{douban_id}/'
+                        link_url = self._item_link(category, item)
+                        if link_url:
                             cell = ws.cell(row=current_row, column=ci)
                             cell.value = link_url
                             cell.hyperlink = link_url
@@ -472,12 +467,161 @@ class DataStorage:
         if first_header_row is not None:
             ws.freeze_panes = f'A{first_header_row + 1}'
 
+
+    # ───────── CSV ─────────
+
+    def _rows_for_csv(self, category, cat_data):
+        """把一个分类摊平成 CSV 行。
+
+        CSV 没有分组和多工作表，所以状态要单独占一列；评分保留数字而不是
+        星号，方便再拿去做统计。
+        """
+        columns = [
+            (key, header)
+            for key, header, _ in _COLUMNS[category]
+            if key != '_index'
+        ]
+        headers = ['状态'] + [
+            '豆瓣链接' if key == '_link' else header for key, header in columns
+        ]
+
+        rows = []
+        for status_key, status_label, _ in _STATUS_ORDER[category]:
+            for item in cat_data.get(status_key, []):
+                row = [status_label]
+                for key, _header in columns:
+                    if key == '_link':
+                        row.append(self._item_link(category, item))
+                    else:
+                        row.append(item.get(key, ''))
+                rows.append(row)
+        return headers, rows
+
+    def save_csv(self, data, filename):
+        """每个分类一个 CSV 文件，返回写出的路径列表。"""
+        paths = []
+        for category in CATEGORY_ORDER:
+            if category not in data or not data[category]:
+                continue
+            headers, rows = self._rows_for_csv(category, data[category])
+            filepath = os.path.join(self.backup_dir, f"{filename}_{category}.csv")
+            # utf-8-sig 带 BOM，Windows 上的 Excel 和 WPS 才不会把中文显示成乱码。
+            with open(filepath, 'w', encoding='utf-8-sig', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                for row in rows:
+                    writer.writerow([sanitize_excel_value(value) for value in row])
+            print(f"  已保存: {filepath}")
+            paths.append(filepath)
+        return paths
+
+    def save_all_csv(self, all_data, timestamp=None):
+        return self.save_csv(all_data, f"douban_backup_{timestamp or self.new_timestamp()}")
+
+    def save_category_csv(self, data, category, timestamp=None):
+        return self.save_csv(data, f"douban_{category}_{timestamp or self.new_timestamp()}")
+
+    # ───────── Markdown ─────────
+
+    @staticmethod
+    def _escape_markdown(text):
+        """转义会影响排版的字符。条目标题来自页面，里面什么都可能有。"""
+        if not isinstance(text, str):
+            return str(text or '')
+        for char in ('\\', '`', '*', '_', '[', ']', '|'):
+            text = text.replace(char, '\\' + char)
+        return text.replace('\n', ' ').strip()
+
+    def _item_link(self, category, item):
+        """条目的豆瓣链接。自带完整 URL 时优先用它。"""
+        if item.get('url'):
+            return item['url']
+        douban_id = item.get('douban_id', '')
+        if not douban_id:
+            return ''
+        item_type = item.get('type', category.rstrip('s'))
+        prefix = _LINK_PREFIX.get(item_type, 'https://www.douban.com/subject/')
+        return f'{prefix}{douban_id}/'
+
+    def save_markdown(self, data, filename):
+        """导出为可读的 Markdown 文档。"""
+        filepath = os.path.join(self.backup_dir, f"{filename}.md")
+        metadata = merge_metadata(self.metadata)
+
+        lines = ['# 豆瓣备份', '']
+        for key, value in metadata_rows(metadata):
+            lines.append(f'- **{key}**: {value}')
+        lines.append('')
+
+        for category in CATEGORY_ORDER:
+            if category not in data or not data[category]:
+                continue
+            label, unit = _CATEGORY_CN[category]
+            total = sum(len(v) for v in data[category].values())
+            lines.append(f'## {label}（{total} {unit}）')
+            lines.append('')
+
+            # 长评这类只有一个分组的分类，再套一层同名小标题纯属重复。
+            flat = is_flat_category(category)
+            for status_key, status_label, _ in _STATUS_ORDER[category]:
+                items = data[category].get(status_key, [])
+                if not items:
+                    continue
+                if not flat:
+                    lines.append(f'### {status_label}（{len(items)} {unit}）')
+                    lines.append('')
+                for item in items:
+                    lines.extend(self._markdown_entry(category, item))
+                lines.append('')
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines).rstrip() + '\n')
+        print(f"  已保存: {filepath}")
+        return filepath
+
+    def _markdown_entry(self, category, item):
+        title = self._escape_markdown(item.get('title', '')) or '(无标题)'
+        link = self._item_link(category, item)
+        heading = f'[{title}]({link})' if link else title
+
+        meta = []
+        stars = _rating_to_stars(item.get('rating', ''))
+        if stars:
+            meta.append(stars)
+        for key in ('subject', 'author', 'artist', 'date'):
+            value = item.get(key)
+            if value:
+                meta.append(self._escape_markdown(value))
+        suffix = f" — {' · '.join(meta)}" if meta else ''
+
+        comment = (item.get('comment') or '').strip()
+        if not comment:
+            return [f'- {heading}{suffix}']
+
+        # 长评正文可能很长，单独成段而不是挤在条目行里。
+        if category == 'reviews':
+            body = '\n'.join(
+                f'  > {line}' for line in comment.splitlines() if line.strip()
+            )
+            return [f'- {heading}{suffix}', '', body, '']
+        return [f'- {heading}{suffix}', f'  > {self._escape_markdown(comment)}']
+
+    def save_all_markdown(self, all_data, timestamp=None):
+        return self.save_markdown(
+            all_data, f"douban_backup_{timestamp or self.new_timestamp()}"
+        )
+
+    def save_category_markdown(self, data, category, timestamp=None):
+        return self.save_markdown(
+            data, f"douban_{category}_{timestamp or self.new_timestamp()}"
+        )
+
     # ───────── 备份列表 ─────────
 
     def get_backup_list(self):
         files = []
         for f in os.listdir(self.backup_dir):
-            if f.endswith(('.json', '.xlsx')):
+            if f.endswith(('.json', '.xlsx', '.csv', '.md')):
                 filepath = os.path.join(self.backup_dir, f)
                 files.append({
                     'name': f,
