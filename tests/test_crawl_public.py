@@ -61,9 +61,10 @@ class PublicBackupFlowTests(unittest.TestCase):
     def test_uses_shared_crawler_stack_and_correct_urls(self):
         requested = []
         with tempfile.TemporaryDirectory() as tmpdir:
-            data = self._run(tmpdir, requested, categories=["books", "movies"])
+            result = self._run(tmpdir, requested, categories=["books", "movies"])
 
-        self.assertEqual({"books", "movies"}, set(data))
+        self.assertTrue(result["ok"])
+        self.assertEqual({"books", "movies"}, set(result["data"]))
         # 书籍分页用 ?start= 而不是 &start=，否则豆瓣会忽略分页参数。
         self.assertIn(
             "https://book.douban.com/people/demo-user/collect?start=0&type=book",
@@ -92,8 +93,15 @@ class PublicBackupFlowTests(unittest.TestCase):
         requested = []
         with tempfile.TemporaryDirectory() as tmpdir:
             self._run(tmpdir, requested, categories=["movies"])
-            dumps = [f for f in os.listdir(tmpdir) if f.endswith(".json")]
-            path = os.path.join(tmpdir, next(f for f in dumps if "backup" in f))
+            # 目录里还有 backup_baseline_*.json，必须精确匹配导出文件，
+            # 否则取到哪个取决于 listdir 的任意顺序。
+            dumps = [
+                f
+                for f in os.listdir(tmpdir)
+                if f.startswith("douban_backup_") and f.endswith(".json")
+            ]
+            self.assertEqual(1, len(dumps))
+            path = os.path.join(tmpdir, dumps[0])
             with open(path, encoding="utf-8") as file_obj:
                 payload = json.load(file_obj)
 

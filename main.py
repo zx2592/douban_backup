@@ -12,6 +12,7 @@ from auth import DoubanAuth
 from backup_metadata import build_metadata
 from backup_state import BackupState
 from books import BookCrawler
+from cli import exit_code
 from config import BACKUP_ITEMS, DATA_DIR, REQUEST_TIMEOUT
 from crawl_public import run_public_backup
 from diagnostics import classify_response
@@ -465,4 +466,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(exit_code(main()))
+    except ValueError as error:
+        # 分类名写错等参数问题，给一句人话而不是一整段 traceback。
+        print(f"[ERROR] {error}")
+        sys.exit(2)

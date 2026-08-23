@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.56](https://img.shields.io/badge/version-1.56-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.57](https://img.shields.io/badge/version-1.57-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 豆瓣个人数据备份工具 — 一键导出你在豆瓣上的 **电影、书籍、音乐、游戏** 全部记录，包括评分、评语、标签和标记日期，输出为精美 Excel 和结构化 JSON。
 
-> v1.56 公开数据模式合并到统一抓取栈，因此同样支持失败重试、断点续传和增量备份，导出也升级为美化 Excel。
+> v1.57 修复音乐和游戏的评分解析，并让命令行在失败时返回非零退出码，便于脚本化调用。
 
 ---
 
@@ -113,7 +113,17 @@ python main.py --delay 5
 python main.py --incremental
 ```
 
-### 4. 查看结果
+### 4. 退出码
+
+便于在脚本或定时任务中判断结果：
+
+| 退出码 | 含义 |
+|--------|------|
+| 0 | 成功 |
+| 1 | 失败（Cookie 过期、抓取中断、校验不通过等） |
+| 2 | 命令行参数有误 |
+
+### 5. 查看结果
 
 备份文件保存在 `data/backup/` 目录：
 
@@ -133,7 +143,7 @@ JSON 文件使用统一的顶层结构：
 ```json
 {
   "metadata": {
-    "app_version": "1.56",
+    "app_version": "1.57",
     "backup_mode": "authenticated",
     "generated_at": "2026-08-06T20:00:00-07:00",
     "selected_categories": ["movies", "books"]
@@ -144,7 +154,7 @@ JSON 文件使用统一的顶层结构：
 
 程序异常中断或无法确认分页结束时会保留断点，下次使用同一账号和输出目录运行即可继续。不同账号的断点相互隔离。
 
-### 5. 爬取公开数据（无需登录）
+### 6. 爬取公开数据（无需登录）
 
 ```bash
 # 通过命令行参数指定用户 ID
@@ -169,7 +179,7 @@ python main.py --public <用户ID> --incremental
 
 公开模式与登录备份共用同一套抓取逻辑，因此失败重试、响应诊断、断点续传、增量备份和美化 Excel 导出全部可用。公开模式的断点和基线与登录模式分开存放——同一个账号的公开主页看不到设为私密的条目，两者的数据并不相同，共用基线会让增量比对得出错误结论。
 
-### 6. 增量备份
+### 7. 增量备份
 
 收藏较多时，每次全量重爬既慢又容易触发访问限制。增量模式利用豆瓣收藏页按标记时间倒序排列的特点，从第一页往后抓，一旦遇到上次备份中已有且没有改动的条目就停止翻页：
 
@@ -206,6 +216,7 @@ python main.py --incremental
 ├── games.py             # 游戏数据爬取
 ├── crawl_public.py      # 免登录公开数据爬取（独立脚本）
 ├── storage.py           # 数据存储（JSON + 美化 Excel 导出）
+├── cli.py               # 命令行退出码翻译
 ├── incremental.py       # 增量备份的指纹比对与基线存储
 ├── backup_state.py      # 账号隔离的断点恢复
 ├── backup_metadata.py   # 备份版本、模式和生成时间元数据
@@ -223,6 +234,14 @@ python main.py --incremental
 ---
 
 ## 更新日志
+
+### v1.57 — 评分解析与退出码修复
+
+- **音乐评分不再漏读** — 原先只检查 class 列表的第一项，遇到 `class="rating-star rating5-t"` 这种评分 class 不在首位的结构会把评分整个丢掉；现改为遍历全部 class
+- **游戏评分不再写入中文** — 部分游戏条目的评分只以 `title="力荐"` 形式给出，此前被原样写进评分字段：JSON 里是中文，导出 Excel 时又因为不是数字而被静默丢弃。现按力荐/推荐/还行/较差/很差换算成 5/4/3/2/1；无法识别的 title 留空，不再污染评分列
+- **命令行失败时返回非零退出码** — 此前两个入口都直接丢弃返回值，Cookie 过期、抓取中断、校验不通过全都以退出码 0 结束，脚本无法判断成败。现约定：成功 0、失败 1、参数错误 2
+- **参数写错不再抛 traceback** — 分类名拼错时给出一句人话提示并以退出码 2 结束
+- **公开备份返回成败信号** — `run_public_backup()` 改为返回 `{"ok": ..., "data": ...}`，中断或抓取失败时 `ok` 为 `False`
 
 ### v1.56 — 公开模式合并到统一抓取栈
 

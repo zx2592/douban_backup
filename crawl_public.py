@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from backup_metadata import build_metadata
 from backup_state import BackupState
 from books import BookCrawler
+from cli import exit_code
 from config import HEADERS
 from games import GameCrawler
 from incremental import Baseline
@@ -119,7 +120,7 @@ def run_public_backup(
         if all_data:
             storage.save_all_json(all_data, timestamp=f"interrupted_{timestamp}")
             storage.save_all_excel(all_data, timestamp=f"interrupted_{timestamp}")
-        return all_data
+        return {"ok": False, "data": all_data}
 
     storage.save_all_json(all_data, timestamp=timestamp)
     storage.save_all_excel(all_data, timestamp=timestamp)
@@ -147,7 +148,7 @@ def run_public_backup(
         _, _, label, unit = CATEGORY_CRAWLERS[category]
         print(f"  {label}: {total} {unit}")
     print(f"\n文件保存在: {storage.backup_dir}")
-    return all_data
+    return {"ok": not incomplete, "data": all_data}
 
 
 def non_negative_delay(raw_value):
@@ -200,4 +201,4 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(exit_code(main()))

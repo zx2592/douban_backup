@@ -1,12 +1,12 @@
 # Douban Backup
 
-[![v1.56](https://img.shields.io/badge/version-1.56-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.57](https://img.shields.io/badge/version-1.57-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 A personal data backup tool for Douban — One-click export of all your **movies, books, music, and games** records on Douban, including ratings, reviews, tags, and marking dates, output as beautifully formatted Excel and structured JSON.
 
-> v1.56 folds public-data mode into the shared crawling stack, so it now gets retries, resumable checkpoints, and incremental backup too, and exports the same beautified Excel report.
+> v1.57 fixes music and game rating parsing, and makes the CLI return a non-zero exit code on failure so it can be driven from scripts.
 
 ---
 
@@ -100,7 +100,17 @@ python main.py --incremental
 python main.py list
 ```
 
-### 4. View Results
+### 4. Exit Codes
+
+For use in scripts and scheduled jobs:
+
+| Exit code | Meaning |
+|-----------|---------|
+| 0 | Success |
+| 1 | Failure (expired Cookie, interrupted crawl, failed verification, …) |
+| 2 | Invalid command-line arguments |
+
+### 5. View Results
 
 Backup files are saved in the `data/backup/` directory:
 
@@ -114,7 +124,7 @@ data/backup/
 
 Every export is timestamped, so repeated backups never overwrite each other; the JSON and Excel from one run share a single timestamp so they are easy to pair up.
 
-### 5. Crawl Public Data (No Login Required)
+### 6. Crawl Public Data (No Login Required)
 
 ```bash
 # Specify user ID via command-line argument
@@ -133,7 +143,7 @@ python main.py --public <UserID> --incremental
 
 Public mode shares its crawling logic with authenticated backup, so retries, response diagnostics, resumable checkpoints, incremental backup, and the beautified Excel export are all available. Its checkpoint and baseline are stored separately from the authenticated ones — a public profile hides entries marked private, so the two datasets differ and a shared baseline would make incremental comparison draw the wrong conclusion.
 
-### 6. Incremental Backup
+### 7. Incremental Backup
 
 For large collections, re-crawling everything each time is slow and invites rate limiting. Incremental mode exploits the fact that Douban collection pages are ordered newest-marked-first: it walks from page one and stops as soon as it meets an entry that is already in the last backup and unchanged.
 
@@ -170,6 +180,7 @@ Things worth knowing:
 ├── games.py             # Game data scraping
 ├── crawl_public.py      # Public data scraping without login (standalone script)
 ├── storage.py           # Data storage (JSON + beautified Excel export)
+├── cli.py               # Command-line exit-code translation
 ├── incremental.py       # Incremental backup fingerprinting and baseline store
 ├── backup_state.py      # Per-account resumable checkpoints
 ├── requirements.txt     # Python dependencies
@@ -182,6 +193,14 @@ Things worth knowing:
 ---
 
 ## Changelog
+
+### v1.57 — Rating Parsing and Exit Code Fixes
+
+- **Music ratings no longer dropped** — Only the first entry of the class list was checked, so markup like `class="rating-star rating5-t"`, where the rating class is not first, lost the rating entirely; all classes are now scanned
+- **Game ratings no longer written as Chinese text** — Some game entries expose the rating only as `title="力荐"`, which was stored verbatim: Chinese in the JSON, and silently dropped from the Excel export because it isn't a number. It is now converted to 5/4/3/2/1; an unrecognized title yields an empty rating instead of polluting the column
+- **CLI returns a non-zero exit code on failure** — Both entry points discarded their return value, so an expired Cookie, an interrupted crawl, or a failed verification all exited 0 and scripts could not tell success from failure. The convention is now: 0 success, 1 failure, 2 invalid arguments
+- **Bad arguments no longer raise a traceback** — A misspelled category prints a plain message and exits with code 2
+- **Public backup reports success** — `run_public_backup()` now returns `{"ok": ..., "data": ...}`, with `ok` false when the crawl was interrupted or failed
 
 ### v1.56 — Public Mode Folded Into the Shared Crawling Stack
 

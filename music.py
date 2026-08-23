@@ -68,8 +68,14 @@ class MusicCrawler(BaseCrawler):
                 rating_tag = item.select_one('span[class^="rating"]')
                 rating = ''
                 if rating_tag:
-                     match = re.search(r'rating(\d+)', rating_tag.get('class', [''])[0])
-                     if match: rating = match.group(1)
+                    # 必须遍历全部 class 而不是只看第一个：豆瓣有时会在评分
+                    # class 前面再挂一个 rating-star 之类不含数字的 class，
+                    # 只取 [0] 会让整条评分被丢掉。
+                    for cls in rating_tag.get('class', []):
+                        match = re.search(r'rating(\d+)', cls)
+                        if match:
+                            rating = match.group(1)
+                            break
                 
                 intro = ''
                 intro_tag = info.select_one('li.intro')
