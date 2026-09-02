@@ -3,6 +3,7 @@
 """
 import re
 from base import BaseCrawler
+from comments import extract_comment
 
 
 class BookCrawler(BaseCrawler):
@@ -109,9 +110,7 @@ class BookCrawler(BaseCrawler):
                             break
 
                 # Comment
-                comment = ''
-                comment_tag = item.select_one('.comment')
-                if comment_tag: comment = comment_tag.get_text(' ', strip=True)
+                comment = extract_comment(item, exclude_texts=(title, author))
                 
                 # Date (if available in this view)
                 date = ''

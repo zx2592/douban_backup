@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "douban-backup"
-version = "1.8"
+version = "1.81"
 description = "豆瓣个人数据备份工具 — 导出电影、书籍、音乐、游戏和长评"
 readme = "README.md"
 requires-python = ">=3.8"

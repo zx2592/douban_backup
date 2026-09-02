@@ -4,6 +4,7 @@
 import re
 from base import BaseCrawler
 from bs4 import BeautifulSoup
+from comments import extract_comment
 
 class MusicCrawler(BaseCrawler):
     COLLECTION_MAP = {
@@ -82,8 +83,9 @@ class MusicCrawler(BaseCrawler):
                 if intro_tag: intro = intro_tag.get_text(strip=True)
                 artist = intro.split('/')[0].strip() if intro else ''
 
-                comment_tag = item.select_one('.comment')
-                comment = comment_tag.get_text(' ', strip=True) if comment_tag else ''
+                # 音乐的评语是 info 列表里最后一个没有 class 的 li，
+                # 不能只认 .comment，否则整列评语都是空的。
+                comment = extract_comment(item, exclude_texts=(intro, artist))
 
                 items.append({
                     'douban_id': douban_id,

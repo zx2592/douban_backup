@@ -3,6 +3,7 @@
 """
 import re
 from base import BaseCrawler
+from comments import extract_comment
 
 
 class MovieCrawler(BaseCrawler):
@@ -102,9 +103,7 @@ class MovieCrawler(BaseCrawler):
                 if date_tag: date = date_tag.get_text(strip=True)
                 
                 # Comment
-                comment = ''
-                comment_tag = item.select_one('.comment')
-                if comment_tag: comment = comment_tag.get_text(' ', strip=True)
+                comment = extract_comment(item, exclude_texts=(title, date))
                 
                 # Tags
                 tags = ''
