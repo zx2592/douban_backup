@@ -4,6 +4,7 @@
 import re
 from base import BaseCrawler
 from bs4 import BeautifulSoup
+from comments import extract_comment
 
 # 豆瓣评分的中文说法与星级的对应关系。游戏条目的评分有时只以 title
 # 属性给出（如 title="力荐"），必须换算成数字才能和其他分类一致。
@@ -85,11 +86,12 @@ class GameCrawler(BaseCrawler):
                             rating = str(value // 10 if value >= 10 else value)
                             break
                     if not rating:
-                        # title 是"力荐/推荐/还行"这类中文，必须换算成数字。
-                        # 原样写入的话，JSON 里是中文，导出 Excel 时又因为
-                        # 不是数字而被静默丢弃，两边都不对。
-                        title = (rating_tag.get('title') or '').strip()
-                        rating = RATING_TITLES.get(title, '')
+                        # title 属性是"力荐/推荐/还行"这类中文，必须换算成
+                        # 数字。原样写入的话，JSON 里是中文，导出 Excel 时
+                        # 又因为不是数字而被静默丢弃，两边都不对。
+                        # 注意别用 title 这个变量名接，那是条目标题。
+                        rating_title = (rating_tag.get('title') or '').strip()
+                        rating = RATING_TITLES.get(rating_title, '')
 
                 desc_tag = item.select_one('.desc')
                 desc = desc_tag.get_text(strip=True) if desc_tag else ''
@@ -98,8 +100,9 @@ class GameCrawler(BaseCrawler):
                      parts = desc.split('/')
                      if parts: date = parts[0].strip()
 
-                comment_tag = item.select_one('.comment')
-                comment = comment_tag.get_text(' ', strip=True) if comment_tag else ''
+                # 游戏的评语是条目末尾一个没有 class 的 p，同样不能只认
+                # .comment；简介和评语挨着，要把简介排除掉。
+                comment = extract_comment(item, exclude_texts=(desc,))
 
                 items.append({
                     'douban_id': douban_id,

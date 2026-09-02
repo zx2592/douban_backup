@@ -1,6 +1,6 @@
 # Douban Backup
 
-[![v1.8](https://img.shields.io/badge/version-1.8-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.81](https://img.shields.io/badge/version-1.81-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
@@ -310,6 +310,7 @@ python main.py --public <用户ID> --only movies,books --output D:\douban-backup
 ├── music.py             # 音乐数据爬取
 ├── games.py             # 游戏数据爬取
 ├── reviews.py           # 长评（影评/书评/乐评/游戏评）爬取
+├── comments.py          # 「我的评语」提取（四类页面的标记并不统一）
 ├── covers.py            # 封面图片本地下载
 ├── storage.py           # 导出（JSON / 美化 Excel / CSV / Markdown）
 ├── incremental.py       # 增量备份的指纹比对与基线存储
@@ -331,6 +332,17 @@ python main.py --public <用户ID> --only movies,books --output D:\douban-backup
 ---
 
 ## 更新日志
+
+### v1.81 — 修复音乐 / 游戏的「我的评语」备份
+
+**修复**
+
+- **音乐和游戏的评语不再全空** — 豆瓣四类收藏页对评语的标记并不统一：电影用 `<span class="comment">`、书籍用 `<p class="comment">`，而音乐把评语放在条目信息列表里最后一个**没有 class** 的 `<li>`，游戏放在条目末尾一个**没有 class** 的 `<p>`。四个解析器此前都只认 `.comment`，所以电影和书籍正常，音乐和游戏其余字段照抓、唯独「我的评语」一列全空
+- **游戏标题不再被评分说法覆盖** — 评分只以 `title="力荐"` 给出的条目，换算评分时误用了 `title` 变量接住这个中文，把条目标题冲掉，备份里的游戏名变成「力荐 / 推荐 / 还行」
+
+**改进**
+
+- **评语提取收敛到一处** — 新增 `comments.py`，四类解析器共用同一个提取函数：优先认 `.comment`（豆瓣哪天补上这个 class 也能直接命中），取不到再在纯文本的 `li` / `p` 里找，并排除标题、简介、日期、评分、标签等已解析成别的字段的节点，避免把日期或简介误写成评语。没写评语的条目仍然留空
 
 ### v1.8 — 封面下载、长评备份、多格式导出与打包
 

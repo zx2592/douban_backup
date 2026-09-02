@@ -1,6 +1,6 @@
 # Douban Backup
 
-[![v1.8](https://img.shields.io/badge/version-1.8-blue.svg)](https://github.com/zx2592/douban_backup)
+[![v1.81](https://img.shields.io/badge/version-1.81-blue.svg)](https://github.com/zx2592/douban_backup)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
@@ -310,6 +310,7 @@ Most to least effective:
 ├── music.py             # Music crawling
 ├── games.py             # Game crawling
 ├── reviews.py           # Long-review crawling
+├── comments.py          # "My comment" extraction (markup differs per category)
 ├── covers.py            # Local cover image downloads
 ├── storage.py           # Exports (JSON / beautified Excel / CSV / Markdown)
 ├── incremental.py       # Incremental fingerprinting and baseline store
@@ -331,6 +332,17 @@ Most to least effective:
 ---
 
 ## Changelog
+
+### v1.81 — Music / Game Comment Backup Fix
+
+**Fixed**
+
+- **Music and game comments are no longer always empty** — Douban marks up the user's comment differently per category: movies use `<span class="comment">` and books use `<p class="comment">`, but music puts the comment in the last **unclassed** `<li>` of the entry's info list, and games put it in a trailing **unclassed** `<p>`. All four parsers only looked for `.comment`, so movies and books worked while music and games backed up every field except "my comment"
+- **Game titles are no longer overwritten by the rating wording** — for entries whose rating is only given as `title="力荐"`, the rating conversion reused the `title` variable that held the entry title, so game names in the backup became "力荐 / 推荐 / 还行"
+
+**Improved**
+
+- **Comment extraction lives in one place** — new `comments.py`, shared by all four parsers: `.comment` first (so it still works if Douban adds the class to music and games), then a search through text-only `li` / `p` nodes that skips titles, descriptions, dates, ratings, and tags already parsed into other fields, so a date or description is never written as a comment. Entries without a comment stay empty
 
 ### v1.8 — Cover Downloads, Long Reviews, Multi-Format Export, and Packaging
 
