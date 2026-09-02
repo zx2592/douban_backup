@@ -46,6 +46,7 @@ py-modules = [
     "base",
     "books",
     "cli",
+    "comments",
     "config",
     "covers",
     "crawl_public",
